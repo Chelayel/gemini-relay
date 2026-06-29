@@ -25,9 +25,14 @@ A native chat GUI for Google Gemini inside JetBrains IDEs. The plugin adds a
 - `api/GeminiClient` — one streaming `streamGenerateContent` call; parses the
   SSE stream, emits text deltas, returns the assembled `ModelTurn`.
 - `api/GeminiTypes` — the slim `contents`/`tools` model shared by all backends.
-- `agent/Tools` — function declarations + executor (read/write/list/search/run),
-  confined to the project dir.
-- `agent/AgentSession` — conversation history + the stream→tool→repeat loop.
+- `agent/Tools` — built-in function declarations + executor (read/write/list/
+  search/run), confined to the project dir.
+- `agent/AgentSession` — conversation history + the stream→tool→repeat loop;
+  routes each call to built-in `Tools` or the `McpManager`.
+- `agent/ProjectMemory` — finds & reads GEMINI.md / AGENTS.md / CLAUDE.md.
+- `mcp/McpClient` — minimal JSON-RPC-over-stdio MCP client (handshake, tools/
+  list, tools/call) with schema sanitization for Gemini.
+- `mcp/McpManager` — owns configured servers, merges their tools, routes calls.
 - `ui/GeminiChatPanel` — tool window: composer (mode/model chips, "+" context
   menu, send), attachable context (editor-selection auto-attach, files, and
   images via multimodal `inlineData`), footer (token usage), title actions
@@ -45,8 +50,9 @@ A native chat GUI for Google Gemini inside JetBrains IDEs. The plugin adds a
 
 ## Status
 
-Feature-complete v0.1: three connection modes, settings, streaming chat, agent
-loop, and the composer context system (selection auto-attach, file/image
-attach, paste). Mirrors the finalized Claude Relay; part of the "Relay" family.
-Claude-CLI-specific features (slash commands, CLAUDE.md/agents bar) are
-intentionally omitted as they don't apply to a Gemini backend.
+v0.1: three connection modes, settings, streaming chat, agent loop, composer
+context system (selection auto-attach, file/image attach, paste), **personas
+(agents)**, **project memory** (GEMINI.md/AGENTS.md/CLAUDE.md), and **MCP tool
+servers**. Part of the "Relay" family alongside Claude Relay. The `--agent`
+*flag* and `.claude/`-folder scanning are not copied (CLI-specific); the
+equivalent capabilities are implemented natively instead.

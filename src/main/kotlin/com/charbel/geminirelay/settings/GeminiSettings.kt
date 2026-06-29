@@ -27,6 +27,38 @@ enum class ConnectionMode(val label: String, val blurb: String) {
 }
 
 /**
+ * A reusable persona ("agent"): a named system-prompt preset the user can run a
+ * turn as. The Gemini analogue of a Gem / a Claude sub-agent. Public mutable
+ * fields with a no-arg constructor so the IDE's XML serializer can persist it.
+ */
+class Persona() {
+    var name: String = ""
+    var prompt: String = ""
+
+    constructor(name: String, prompt: String) : this() {
+        this.name = name
+        this.prompt = prompt
+    }
+}
+
+/** Launch config for one MCP (Model Context Protocol) tool server over stdio. */
+class McpServerConfig() {
+    var name: String = ""
+    var command: String = ""
+    var args: String = ""
+    var env: String = ""
+    var enabled: Boolean = true
+
+    constructor(name: String, command: String, args: String, env: String, enabled: Boolean) : this() {
+        this.name = name
+        this.command = command
+        this.args = args
+        this.env = env
+        this.enabled = enabled
+    }
+}
+
+/**
  * Persisted, non-secret configuration for the active connection. Secrets
  * (the API key and the Apigee client secret) live in the IDE [PasswordSafe]
  * instead of this XML so they never land in plaintext settings files.
@@ -64,6 +96,13 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
         var systemPrompt: String = DEFAULT_SYSTEM_PROMPT
         var maxIterations: Int = 15
         var commandTimeoutSeconds: Int = 60
+
+        // Auto-load a project memory file (GEMINI.md / AGENTS.md / CLAUDE.md).
+        var loadProjectMemory: Boolean = true
+
+        // Reusable personas and MCP tool servers.
+        var personas: MutableList<Persona> = mutableListOf()
+        var mcpServers: MutableList<McpServerConfig> = mutableListOf()
     }
 
     private var state = State()
@@ -116,6 +155,13 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
     var commandTimeoutSeconds: Int
         get() = state.commandTimeoutSeconds.coerceIn(5, 600)
         set(value) { state.commandTimeoutSeconds = value.coerceIn(5, 600) }
+
+    var loadProjectMemory: Boolean
+        get() = state.loadProjectMemory
+        set(value) { state.loadProjectMemory = value }
+
+    val personas: MutableList<Persona> get() = state.personas
+    val mcpServers: MutableList<McpServerConfig> get() = state.mcpServers
 
     // ---- secrets (PasswordSafe) ----------------------------------------------
 

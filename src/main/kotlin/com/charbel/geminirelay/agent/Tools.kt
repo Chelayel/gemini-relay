@@ -62,6 +62,9 @@ class Tools(private val workingDir: String, private val commandTimeoutSeconds: I
         ),
     )
 
+    /** True when [name] is one of the built-in tools (vs. an MCP tool). */
+    fun handles(name: String): Boolean = name in BUILTIN_NAMES
+
     /** Execute one call and return the `response` object to feed back to the model. */
     fun execute(name: String, args: JsonObject): JsonObject = runCatching {
         when (name) {
@@ -202,5 +205,6 @@ class Tools(private val workingDir: String, private val commandTimeoutSeconds: I
     companion object {
         private const val MAX_READ = 60_000
         private const val MAX_HITS = 200
+        private val BUILTIN_NAMES = setOf("readFile", "writeFile", "listFiles", "searchFiles", "runCommand")
     }
 }

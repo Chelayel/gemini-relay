@@ -1,12 +1,16 @@
 package com.charbel.geminirelay.ui
 
 import com.charbel.geminirelay.agent.AgentSession
+import com.charbel.geminirelay.agent.ProjectMemory
 import com.charbel.geminirelay.api.Part
 import com.charbel.geminirelay.api.Usage
+import com.charbel.geminirelay.mcp.McpManager
 import com.charbel.geminirelay.settings.GeminiSettings
 import com.charbel.geminirelay.settings.GeminiSettingsConfigurable
+import com.charbel.geminirelay.settings.Persona
 import com.intellij.icons.AllIcons
 import com.intellij.openapi.Disposable
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.DataContext
@@ -76,7 +80,13 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private val workingDir = project.basePath ?: System.getProperty("user.dir")
 
     private val chat: ChatView = if (JBCefApp.isSupported()) ChatWebView(this) else TranscriptView()
-    private var session = AgentSession(workingDir, settings)
+    private val mcp = McpManager(settings)
+    private var session = AgentSession(workingDir, settings, mcp)
+
+    // The persona this session runs as (its prompt replaces the base system
+    // prompt in Agent mode), and any auto-loaded project memory.
+    private var activePersona: Persona? = null
+    private var projectMemory: String? = null
 
     private val input = JBTextArea(3, 40).apply {
         lineWrap = true
@@ -149,6 +159,19 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         installSelectionTracking()
         updateControls()
         showConfigHintIfNeeded()
+        loadProjectMemory()
+    }
+
+    /** Pick up GEMINI.md / AGENTS.md / CLAUDE.md off the EDT and note it. */
+    private fun loadProjectMemory() {
+        if (!settings.loadProjectMemory) return
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val memory = ProjectMemory.read(workingDir) ?: return@executeOnPooledThread
+            ApplicationManager.getApplication().invokeLater {
+                projectMemory = memory.text
+                chat.addSystem("Loaded project memory from ${memory.file.name}.")
+            }
+        }
     }
 
     private fun buildHeader(): JPanel = JPanel(BorderLayout()).apply {
@@ -323,10 +346,30 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         group.add(action("Add file…", AllIcons.FileTypes.Any_type) { chooseFiles(imagesOnly = false) })
         group.add(action("Add image…", AllIcons.FileTypes.Image) { chooseFiles(imagesOnly = true) })
 
+        val personas = settings.personas.filter { it.name.isNotBlank() }
+        if (personas.isNotEmpty()) {
+            group.addSeparator()
+            val sub = DefaultActionGroup("Run as agent (${personas.size})", true)
+            personas.forEach { persona ->
+                sub.add(object : ToggleAction(persona.name, persona.prompt.lineSequence().firstOrNull(), null) {
+                    override fun isSelected(e: AnActionEvent) = activePersona?.name == persona.name
+                    override fun setSelected(e: AnActionEvent, state: Boolean) =
+                        setActivePersona(if (state) persona else null)
+                })
+            }
+            group.add(sub)
+        }
+
         JBPopupFactory.getInstance().createActionGroupPopup(
             "Add context", group, DataContext.EMPTY_CONTEXT,
             JBPopupFactory.ActionSelectionAid.SPEEDSEARCH, true,
         ).showUnderneathOf(contextButton)
+    }
+
+    /** A persona is single-select: re-picking the active one clears it. */
+    private fun setActivePersona(persona: Persona?) {
+        activePersona = persona
+        rebuildContext()
     }
 
     private fun action(text: String, icon: Icon? = null, run: () -> Unit): AnAction =
@@ -429,18 +472,35 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
 
     private fun rebuildContext() {
         contextPanel.removeAll()
-        contextChips.forEach { chip -> contextPanel.add(contextChipComponent(chip, auto = false)) }
+        // Active persona shows first, as an accent pill.
+        activePersona?.let { p ->
+            contextPanel.add(pill("▸ ${p.name}", null, "Running as the \"${p.name}\" agent", accent = true, removeTip = "Clear agent") {
+                setActivePersona(null)
+            })
+        }
+        contextChips.forEach { chip ->
+            contextPanel.add(pill(chip.label, chip.icon, chip.tooltip, accent = false, removeTip = "Remove") {
+                contextChips.remove(chip)
+                rebuildContext()
+            })
+        }
         val auto = autoChip.takeIf { autoAttachSelection }
-        auto?.let { contextPanel.add(contextChipComponent(it, auto = true)) }
-        contextPanel.isVisible = contextChips.isNotEmpty() || auto != null
+        auto?.let {
+            contextPanel.add(pill("✦ ${it.label}", it.icon, "Auto-attached selection — click ✕ to turn off", accent = true, removeTip = "Turn off auto-attach") {
+                autoAttachSelection = false
+                refreshAutoContext()
+            })
+        }
+        contextPanel.isVisible = activePersona != null || contextChips.isNotEmpty() || auto != null
         contextPanel.revalidate()
         contextPanel.repaint()
         revalidate()
         repaint()
     }
 
-    private fun contextChipComponent(chip: ContextChip, auto: Boolean): JComponent {
-        val borderColor: Color = if (auto) ACCENT else JBColor.border()
+    /** A small rounded context pill with a remove (✕) button. */
+    private fun pill(label: String, icon: Icon?, tooltip: String?, accent: Boolean, removeTip: String, onRemove: () -> Unit): JComponent {
+        val borderColor: Color = if (accent) ACCENT else JBColor.border()
         val comp = object : JPanel(FlowLayout(FlowLayout.LEFT, JBUI.scale(4), JBUI.scale(2))) {
             init { isOpaque = false }
             override fun paintComponent(g: Graphics) {
@@ -456,9 +516,9 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
                 super.paintComponent(g)
             }
         }
-        comp.toolTipText = if (auto) "Auto-attached selection — click ✕ to turn off" else chip.tooltip
-        comp.add(JBLabel((if (auto) "✦ " else "") + truncate(chip.label, 26)).apply {
-            icon = chip.icon
+        comp.toolTipText = tooltip
+        comp.add(JBLabel(truncate(label, 28)).apply {
+            this.icon = icon
             font = JBUI.Fonts.smallFont()
         })
         comp.add(JButton(AllIcons.Actions.Close).apply {
@@ -468,16 +528,8 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
             isOpaque = false
             margin = JBUI.emptyInsets()
             cursor = Cursor.getPredefinedCursor(Cursor.HAND_CURSOR)
-            toolTipText = if (auto) "Turn off auto-attach" else "Remove"
-            addActionListener {
-                if (auto) {
-                    autoAttachSelection = false
-                    refreshAutoContext()
-                } else {
-                    contextChips.remove(chip)
-                    rebuildContext()
-                }
-            }
+            toolTipText = removeTip
+            addActionListener { onRemove() }
         })
         return comp
     }
@@ -506,7 +558,11 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         input.text = ""
         clearContext()
         if (!hasTitle) setTitle(text.ifBlank { context.firstOrNull()?.label ?: "Context" })
-        chat.addUser(buildDisplay(text, context))
+        val persona = activePersona
+        val display = buildDisplay(text, context).let {
+            if (persona != null) "$it\n\n▸ running as \"${persona.name}\"" else it
+        }
+        chat.addUser(display)
         chat.setBusy(true)
         running = true
         statusLabel.text = "Working…"
@@ -515,7 +571,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         updateControls()
 
         val askMode = modeChip.selected == Mode.ASK
-        session.send(buildParts(text, context), askMode, object : AgentSession.Listener {
+        session.send(buildParts(text, context), askMode, composeSystemPrompt(askMode, persona), object : AgentSession.Listener {
             override fun onAssistantText(text: String) = chat.assistantChunk(text)
             override fun onToolUse(name: String, summary: String) {
                 chat.endAssistant()
@@ -529,6 +585,17 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
             override fun onError(message: String) = chat.addError(message)
             override fun onComplete() = finishTurn()
         })
+    }
+
+    /** Compose the turn's system prompt: persona (or base/ask) + project memory. */
+    private fun composeSystemPrompt(askMode: Boolean, persona: Persona?): String {
+        val base = when {
+            askMode -> ASK_SYSTEM_PROMPT
+            persona != null && persona.prompt.isNotBlank() -> persona.prompt
+            else -> settings.systemPrompt
+        }
+        val memory = projectMemory?.takeIf { it.isNotBlank() }
+        return if (memory == null) base else "$base\n\n# Project memory\n$memory"
     }
 
     /** Assemble the Gemini user parts: the typed text, then each attachment. */
@@ -551,7 +618,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private fun newSession() {
         if (running) stop()
         session.reset()
-        session = AgentSession(workingDir, settings)
+        session = AgentSession(workingDir, settings, mcp)
         lastUsage = null
         hasTitle = false
         clearContext()
@@ -611,6 +678,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
 
     override fun dispose() {
         session.cancel()
+        mcp.dispose()
         runCatching { tempDir.deleteRecursively() }
     }
 
@@ -705,5 +773,10 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         private val STOP_BG = Color(0x8A, 0x46, 0x42)
         private val IMAGE_EXTS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
         private const val MAX_FILE_CHARS = 40_000
+        private val ASK_SYSTEM_PROMPT = """
+            You are Gemini Relay in read-only "ask" mode: answer questions about the user's code.
+            You cannot modify files or run commands — explain, review, and suggest code in your reply instead.
+            If the user's message includes attached context, use it to ground your answer.
+        """.trimIndent()
     }
 }

@@ -18,6 +18,13 @@ the terminal or a browser tab.
   "explain/refactor this" just works
 - **Attach files & images** — pick a file, or paste a screenshot straight into
   the prompt (Gemini is multimodal; images go inline)
+- **Personas (agents)** — named system-prompt presets; pick one from the
+  composer's "+" menu to run a turn as that persona (the Gemini analogue of a
+  Gem / a Claude sub-agent)
+- **Project memory** — auto-loads a `GEMINI.md` / `AGENTS.md` / `CLAUDE.md` from
+  the project root as standing context
+- **MCP tool servers** — connect external Model Context Protocol servers; their
+  tools join Gemini's function-calling loop in Agent mode
 - **Three connection modes**, switchable in settings:
   - **Gemini API** — the public Generative Language API with an API key
   - **Vertex AI** — a standard Vertex AI project (OAuth token via `gcloud`)

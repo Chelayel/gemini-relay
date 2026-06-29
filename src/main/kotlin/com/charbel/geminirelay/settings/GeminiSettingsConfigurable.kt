@@ -1,13 +1,19 @@
 package com.charbel.geminirelay.settings
 
 import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.ui.CollectionListModel
 import com.intellij.ui.SimpleListCellRenderer
+import com.intellij.ui.ToolbarDecorator
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
+import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.JBUI
+import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.ComboBoxModel
 import javax.swing.DefaultComboBoxModel
@@ -52,6 +58,19 @@ class GeminiSettingsConfigurable : Configurable {
     private val maxIterationsSpinner = JSpinner(SpinnerNumberModel(15, 1, 100, 1))
     private val commandTimeoutSpinner = JSpinner(SpinnerNumberModel(60, 5, 600, 1))
 
+    private val loadMemoryCheck = JBCheckBox("Load project memory (GEMINI.md / AGENTS.md / CLAUDE.md) as context")
+
+    private val personaModel = CollectionListModel<Persona>()
+    private val personaList = JBList(personaModel).apply {
+        cellRenderer = SimpleListCellRenderer.create("") { it.name.ifBlank { "(unnamed)" } }
+    }
+    private val mcpModel = CollectionListModel<McpServerConfig>()
+    private val mcpList = JBList(mcpModel).apply {
+        cellRenderer = SimpleListCellRenderer.create("") {
+            (if (it.enabled) it.name else "${it.name} (disabled)") + "  —  ${it.command}"
+        }
+    }
+
     override fun getDisplayName(): String = "Gemini Relay"
 
     override fun createComponent(): JComponent {
@@ -87,12 +106,42 @@ class GeminiSettingsConfigurable : Configurable {
             .addLabeledComponent("System prompt:", promptScroll)
             .addLabeledComponent("Max steps per turn:", maxIterationsSpinner)
             .addLabeledComponent("Command timeout (s):", commandTimeoutSpinner)
+            .addComponent(loadMemoryCheck)
+            .addSeparator()
+            .addComponent(sectionLabel("Personas (agents)"))
+            .addComponent(hint("Named system-prompt presets — pick one from the composer's “+” menu to run a turn as that agent."))
+            .addComponent(listPanel(personaList, { editDialog(PersonaDialog(null)) }, { editDialog(PersonaDialog(it)) }))
+            .addSeparator()
+            .addComponent(sectionLabel("MCP tool servers"))
+            .addComponent(hint("External Model Context Protocol servers (stdio). Their tools are added to Agent mode."))
+            .addComponent(listPanel(mcpList, { editDialog(McpDialog(null)) }, { editDialog(McpDialog(it)) }))
             .addComponentFillVertically(JPanel(), 0)
             .panel
 
         reset()
         return form
     }
+
+    /** A list with an add/edit/remove toolbar. */
+    private fun <T> listPanel(list: JBList<T>, onAdd: () -> T?, onEdit: (T) -> T?): JComponent {
+        @Suppress("UNCHECKED_CAST")
+        val model = list.model as CollectionListModel<T>
+        val decorated = ToolbarDecorator.createDecorator(list)
+            .setAddAction { onAdd()?.let { model.add(it); list.selectedIndex = model.size - 1 } }
+            .setEditAction {
+                val idx = list.selectedIndex
+                if (idx >= 0) onEdit(model.getElementAt(idx))?.let { model.setElementAt(it, idx) }
+            }
+            .setRemoveAction { list.selectedIndex.takeIf { it >= 0 }?.let { model.remove(it) } }
+            .createPanel()
+        return JPanel(BorderLayout()).apply {
+            preferredSize = Dimension(JBUI.scale(480), JBUI.scale(110))
+            add(decorated, BorderLayout.CENTER)
+        }
+    }
+
+    private fun <T> editDialog(dialog: ItemDialog<T>): T? =
+        if (dialog.showAndGet()) dialog.result() else null
 
     private fun sectionLabel(text: String): JComponent =
         JBLabel(text).apply {
@@ -137,7 +186,10 @@ class GeminiSettingsConfigurable : Configurable {
             String(clientSecretField.password) != settings.apigeeClientSecret ||
             systemPromptArea.text != settings.systemPrompt ||
             (maxIterationsSpinner.value as Int) != settings.maxIterations ||
-            (commandTimeoutSpinner.value as Int) != settings.commandTimeoutSeconds
+            (commandTimeoutSpinner.value as Int) != settings.commandTimeoutSeconds ||
+            loadMemoryCheck.isSelected != settings.loadProjectMemory ||
+            !personasEqual(items(personaModel), settings.personas) ||
+            !mcpEqual(items(mcpModel), settings.mcpServers)
 
     override fun apply() {
         settings.connectionMode = modeCombo.selectedItem as ConnectionMode
@@ -153,6 +205,9 @@ class GeminiSettingsConfigurable : Configurable {
         settings.systemPrompt = systemPromptArea.text
         settings.maxIterations = maxIterationsSpinner.value as Int
         settings.commandTimeoutSeconds = commandTimeoutSpinner.value as Int
+        settings.loadProjectMemory = loadMemoryCheck.isSelected
+        settings.personas.apply { clear(); addAll(items(personaModel)) }
+        settings.mcpServers.apply { clear(); addAll(items(mcpModel)) }
         // A credential change may invalidate a cached bearer token.
         com.charbel.geminirelay.api.AuthProvider.invalidate()
     }
@@ -172,6 +227,9 @@ class GeminiSettingsConfigurable : Configurable {
         systemPromptArea.caretPosition = 0
         maxIterationsSpinner.value = settings.maxIterations
         commandTimeoutSpinner.value = settings.commandTimeoutSeconds
+        loadMemoryCheck.isSelected = settings.loadProjectMemory
+        personaModel.replaceAll(settings.personas.map { Persona(it.name, it.prompt) })
+        mcpModel.replaceAll(settings.mcpServers.map { McpServerConfig(it.name, it.command, it.args, it.env, it.enabled) })
         updateEnablement()
     }
 
@@ -179,4 +237,63 @@ class GeminiSettingsConfigurable : Configurable {
 
     private fun comboModel(items: List<String>): ComboBoxModel<String> =
         DefaultComboBoxModel(items.toTypedArray())
+
+    private fun <T> items(model: CollectionListModel<T>): List<T> =
+        (0 until model.size).map { model.getElementAt(it) }
+
+    private fun personasEqual(a: List<Persona>, b: List<Persona>): Boolean =
+        a.size == b.size && a.zip(b).all { (x, y) -> x.name == y.name && x.prompt == y.prompt }
+
+    private fun mcpEqual(a: List<McpServerConfig>, b: List<McpServerConfig>): Boolean =
+        a.size == b.size && a.zip(b).all { (x, y) ->
+            x.name == y.name && x.command == y.command && x.args == y.args && x.env == y.env && x.enabled == y.enabled
+        }
+
+    // ---- item editor dialogs -------------------------------------------------
+
+    private abstract class ItemDialog<T>(dialogTitle: String) : DialogWrapper(true) {
+        init { title = dialogTitle }
+        abstract fun result(): T
+    }
+
+    private class PersonaDialog(existing: Persona?) : ItemDialog<Persona>("Persona") {
+        private val nameField = JBTextField(existing?.name ?: "")
+        private val promptArea = JBTextArea(8, 48).apply {
+            lineWrap = true; wrapStyleWord = true; text = existing?.prompt ?: ""
+        }
+
+        init { init() }
+
+        override fun createCenterPanel(): JComponent = FormBuilder.createFormBuilder()
+            .addLabeledComponent("Name:", nameField)
+            .addLabeledComponent("System prompt:", JScrollPane(promptArea).apply {
+                preferredSize = Dimension(JBUI.scale(460), JBUI.scale(180))
+            })
+            .panel
+
+        override fun result() = Persona(nameField.text.trim(), promptArea.text)
+    }
+
+    private class McpDialog(existing: McpServerConfig?) : ItemDialog<McpServerConfig>("MCP Server") {
+        private val nameField = JBTextField(existing?.name ?: "")
+        private val commandField = JBTextField(existing?.command ?: "")
+        private val argsField = JBTextField(existing?.args ?: "")
+        private val envArea = JBTextArea(4, 40).apply { text = existing?.env ?: "" }
+        private val enabledCheck = JBCheckBox("Enabled", existing?.enabled ?: true)
+
+        init { init() }
+
+        override fun createCenterPanel(): JComponent = FormBuilder.createFormBuilder()
+            .addLabeledComponent("Name:", nameField)
+            .addLabeledComponent("Command:", commandField)
+            .addLabeledComponent("Arguments:", argsField)
+            .addLabeledComponent("Env (KEY=VALUE per line):", JScrollPane(envArea).apply {
+                preferredSize = Dimension(JBUI.scale(420), JBUI.scale(90))
+            })
+            .addComponent(enabledCheck)
+            .panel
+
+        override fun result() =
+            McpServerConfig(nameField.text.trim(), commandField.text.trim(), argsField.text.trim(), envArea.text, enabledCheck.isSelected)
+    }
 }

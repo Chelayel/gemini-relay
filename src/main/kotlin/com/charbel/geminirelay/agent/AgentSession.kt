@@ -4,21 +4,21 @@ import com.charbel.geminirelay.api.Content
 import com.charbel.geminirelay.api.GeminiClient
 import com.charbel.geminirelay.api.Part
 import com.charbel.geminirelay.api.Usage
+import com.charbel.geminirelay.mcp.McpManager
 import com.charbel.geminirelay.settings.GeminiSettings
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 
 /**
  * Holds one conversation's running history and drives the agentic loop:
- * stream a model turn, run any tool calls it requests, feed the results back,
- * and repeat until the model answers with plain text (or the iteration cap is
- * hit). All listener callbacks are delivered on the Swing EDT.
- *
- * One [AgentSession] lives for the life of a chat; [reset] starts a new one.
+ * stream a model turn, run any tool calls it requests (built-in or MCP), feed
+ * the results back, and repeat until the model answers with plain text (or the
+ * iteration cap is hit). All listener callbacks are delivered on the Swing EDT.
  */
 class AgentSession(
     private val workingDir: String,
     private val settings: GeminiSettings,
+    private val mcp: McpManager,
 ) {
     private val log = logger<AgentSession>()
     private val history = mutableListOf<Content>()
@@ -47,23 +47,27 @@ class AgentSession(
         client?.cancel()
     }
 
-    /** Send one user message (text and/or inline images) and run the loop. */
-    fun send(userParts: List<Part>, askMode: Boolean, listener: Listener) {
+    /**
+     * Send one user message (text and/or inline images) and run the loop.
+     * [systemPrompt] is the fully-composed instruction for this turn (persona
+     * and/or project memory already folded in by the caller).
+     */
+    fun send(userParts: List<Part>, askMode: Boolean, systemPrompt: String, listener: Listener) {
         cancelled = false
         running = true
         history.add(Content("user", userParts.ifEmpty { listOf(Part.Text("")) }))
         ApplicationManager.getApplication().executeOnPooledThread {
-            runCatching { loop(askMode, listener) }
+            runCatching { loop(askMode, systemPrompt, listener) }
                 .onFailure { edt { listener.onError(it.message ?: "Unexpected error.") } }
             running = false
             edt { listener.onComplete() }
         }
     }
 
-    private fun loop(askMode: Boolean, listener: Listener) {
+    private fun loop(askMode: Boolean, systemPrompt: String, listener: Listener) {
         val tools = Tools(workingDir, settings.commandTimeoutSeconds)
-        val declarations = if (askMode) emptyList() else tools.declarations()
-        val systemPrompt = if (askMode) ASK_SYSTEM_PROMPT else settings.systemPrompt
+        // Ask mode is strictly read-only: no tools at all.
+        val declarations = if (askMode) emptyList() else tools.declarations() + mcp.declarations()
 
         var iteration = 0
         while (!cancelled && iteration < settings.maxIterations) {
@@ -85,8 +89,10 @@ class AgentSession(
             val responses = mutableListOf<Part>()
             for (call in calls) {
                 if (cancelled) break
-                edt { listener.onToolUse(call.name, tools.summarize(call.name, call.args)) }
-                val response = tools.execute(call.name, call.args)
+                val builtin = tools.handles(call.name)
+                val summary = if (builtin) tools.summarize(call.name, call.args) else mcp.summarize(call.name)
+                edt { listener.onToolUse(call.name, summary) }
+                val response = if (builtin) tools.execute(call.name, call.args) else mcp.execute(call.name, call.args)
                 val isError = response.has("error")
                 val shown = (response.get("error") ?: response.get("result"))?.asString.orEmpty()
                 edt { listener.onToolResult(shown, isError) }
@@ -110,11 +116,5 @@ class AgentSession(
 
     companion object {
         private const val MEMORY_WINDOW = 100
-
-        private val ASK_SYSTEM_PROMPT = """
-            You are Gemini Relay in read-only "ask" mode: answer questions about the user's code.
-            You cannot modify files or run commands — explain, review, and suggest code in your reply instead.
-            If the user's message includes attached context, use it to ground your answer.
-        """.trimIndent()
     }
 }
