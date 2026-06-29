@@ -53,6 +53,7 @@ class GeminiSettingsConfigurable : Configurable {
     private val tokenUrlField = JBTextField()
     private val clientIdField = JBTextField()
     private val clientSecretField = JBPasswordField()
+    private val apigeeAgentsArea = JBTextArea(4, 40)
 
     private val systemPromptArea = JBTextArea(6, 50).apply { lineWrap = true; wrapStyleWord = true }
     private val maxIterationsSpinner = JSpinner(SpinnerNumberModel(15, 1, 100, 1))
@@ -101,6 +102,10 @@ class GeminiSettingsConfigurable : Configurable {
             .addLabeledComponent("Token URL:", tokenUrlField)
             .addLabeledComponent("Client ID:", clientIdField)
             .addLabeledComponent("Client secret:", clientSecretField)
+            .addLabeledComponent("Accessible agents:", JScrollPane(apigeeAgentsArea).apply {
+                preferredSize = Dimension(JBUI.scale(360), JBUI.scale(80))
+            })
+            .addComponent(hint("Apigee mode only — one agent (model id) per line. These become the model picker's choices."))
             .addSeparator()
             .addComponent(sectionLabel("Agent"))
             .addLabeledComponent("System prompt:", promptScroll)
@@ -171,6 +176,7 @@ class GeminiSettingsConfigurable : Configurable {
         tokenUrlField.isEnabled = apigee
         clientIdField.isEnabled = apigee
         clientSecretField.isEnabled = apigee
+        apigeeAgentsArea.isEnabled = apigee
     }
 
     override fun isModified(): Boolean =
@@ -184,6 +190,7 @@ class GeminiSettingsConfigurable : Configurable {
             tokenUrlField.text.trim() != settings.apigeeTokenUrl ||
             clientIdField.text.trim() != settings.apigeeClientId ||
             String(clientSecretField.password) != settings.apigeeClientSecret ||
+            apigeeAgentsArea.text != settings.apigeeAgents ||
             systemPromptArea.text != settings.systemPrompt ||
             (maxIterationsSpinner.value as Int) != settings.maxIterations ||
             (commandTimeoutSpinner.value as Int) != settings.commandTimeoutSeconds ||
@@ -202,6 +209,7 @@ class GeminiSettingsConfigurable : Configurable {
         settings.apigeeTokenUrl = tokenUrlField.text
         settings.apigeeClientId = clientIdField.text
         settings.apigeeClientSecret = String(clientSecretField.password)
+        settings.apigeeAgents = apigeeAgentsArea.text
         settings.systemPrompt = systemPromptArea.text
         settings.maxIterations = maxIterationsSpinner.value as Int
         settings.commandTimeoutSeconds = commandTimeoutSpinner.value as Int
@@ -223,6 +231,8 @@ class GeminiSettingsConfigurable : Configurable {
         tokenUrlField.text = settings.apigeeTokenUrl
         clientIdField.text = settings.apigeeClientId
         clientSecretField.text = settings.apigeeClientSecret
+        apigeeAgentsArea.text = settings.apigeeAgents
+        apigeeAgentsArea.caretPosition = 0
         systemPromptArea.text = settings.systemPrompt
         systemPromptArea.caretPosition = 0
         maxIterationsSpinner.value = settings.maxIterations

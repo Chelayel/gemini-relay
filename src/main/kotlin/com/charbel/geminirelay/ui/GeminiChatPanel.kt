@@ -5,6 +5,7 @@ import com.charbel.geminirelay.agent.ProjectMemory
 import com.charbel.geminirelay.api.Part
 import com.charbel.geminirelay.api.Usage
 import com.charbel.geminirelay.mcp.McpManager
+import com.charbel.geminirelay.settings.ConnectionMode
 import com.charbel.geminirelay.settings.GeminiSettings
 import com.charbel.geminirelay.settings.GeminiSettingsConfigurable
 import com.charbel.geminirelay.settings.Persona
@@ -98,7 +99,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private val sendButton = glyphButton("↑", ACCENT, "Send  ·  Enter")
     private val stopButton = glyphButton("■", STOP_BG, "Stop").apply { isVisible = false }
     private val modeChip = ChipSelector(Mode.entries.toList(), Mode.AGENT) { it.label }
-    private val modelChip = ChipSelector(modelChoices(), settings.model) { it }
+    private val modelChip = ChipSelector(modelChoices(), currentModel()) { it }
     private val statusLabel = JBLabel("").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() }
     private val usageLabel = JBLabel("").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() }
     private val busyIcon = AsyncProcessIcon("gemini-busy").apply { isVisible = false }
@@ -152,6 +153,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
 
         sendButton.addActionListener { send() }
         stopButton.addActionListener { stop() }
+        modelChip.itemsProvider = { modelChoices() }
         modelChip.onChange = { settings.model = modelChip.selected }
         modeChip.toolTipText = "Agent: reads, edits & runs commands  ·  Ask: read-only answers"
         installEnterToSend()
@@ -298,7 +300,10 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
             override fun selectionChanged(e: SelectionEvent) = refreshAutoContext()
         }, this)
         input.addFocusListener(object : FocusAdapter() {
-            override fun focusGained(e: FocusEvent) = refreshAutoContext()
+            override fun focusGained(e: FocusEvent) {
+                refreshAutoContext()
+                refreshModelChip()
+            }
         })
         refreshAutoContext()
     }
@@ -664,8 +669,29 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         input.isEnabled = !running
     }
 
+    /** Picker choices: in Apigee mode, the accessible agents; otherwise the
+     *  suggested Gemini models plus whatever is currently set. */
     private fun modelChoices(): List<String> =
-        (GeminiSettings.MODEL_CHOICES + settings.model).distinct()
+        if (settings.connectionMode == ConnectionMode.VERTEX_APIGEE) {
+            settings.apigeeAgentList().ifEmpty { listOf(settings.model).filter { it.isNotBlank() } }
+        } else {
+            (GeminiSettings.MODEL_CHOICES + settings.model).filter { it.isNotBlank() }.distinct()
+        }
+
+    private fun currentModel(): String {
+        val choices = modelChoices()
+        return if (settings.model in choices) settings.model else choices.firstOrNull() ?: settings.model
+    }
+
+    /** Keep the picker's selection valid for the current mode/agent list. */
+    private fun refreshModelChip() {
+        val choices = modelChoices()
+        if (modelChip.selected !in choices) {
+            val pick = choices.firstOrNull() ?: settings.model
+            modelChip.selected = pick
+            settings.model = pick
+        }
+    }
 
     private fun mimeForExtension(ext: String?): String = when (ext?.lowercase()) {
         "png" -> "image/png"
@@ -700,6 +726,8 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     ) : JButton() {
         private var items: List<T> = items
         var onChange: (() -> Unit)? = null
+        /** When set, the chooser recomputes its items on each open. */
+        var itemsProvider: (() -> List<T>)? = null
         var selected: T = initial
             set(value) { field = value; updateText() }
 
@@ -712,7 +740,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
             margin = JBUI.insets(2, 7)
             foreground = JBColor.foreground()
             addActionListener {
-                showChooser(this, this@ChipSelector.items, render) { sel ->
+                showChooser(this, itemsProvider?.invoke() ?: items, render) { sel ->
                     selected = sel
                     onChange?.invoke()
                 }

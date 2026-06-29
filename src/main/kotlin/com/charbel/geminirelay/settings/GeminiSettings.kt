@@ -88,6 +88,10 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
         var apigeeTokenUrl: String = ""
         var apigeeClientId: String = ""
 
+        // In Apigee mode the gateway exposes a fixed set of agents (= model
+        // identifiers) the user may call. One per line; drives the model picker.
+        var apigeeAgents: String = ""
+
         // For standard Vertex: how to obtain an access token. When blank we
         // shell out to `gcloud auth print-access-token`.
         var gcloudPath: String = ""
@@ -140,6 +144,14 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
         get() = state.apigeeClientId.trim()
         set(value) { state.apigeeClientId = value.trim() }
 
+    var apigeeAgents: String
+        get() = state.apigeeAgents
+        set(value) { state.apigeeAgents = value }
+
+    /** The accessible agents (model ids) parsed from [apigeeAgents]. */
+    fun apigeeAgentList(): List<String> =
+        state.apigeeAgents.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+
     var gcloudPath: String
         get() = state.gcloudPath.trim()
         set(value) { state.gcloudPath = value.trim() }
@@ -179,7 +191,8 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
         ConnectionMode.VERTEX -> vertexProjectId.isNotBlank()
         ConnectionMode.VERTEX_APIGEE ->
             vertexProjectId.isNotBlank() && vertexApiEndpoint.isNotBlank() &&
-                apigeeTokenUrl.isNotBlank() && apigeeClientId.isNotBlank() && apigeeClientSecret.isNotBlank()
+                apigeeTokenUrl.isNotBlank() && apigeeClientId.isNotBlank() && apigeeClientSecret.isNotBlank() &&
+                apigeeAgentList().isNotEmpty()
     }
 
     private fun readSecret(key: String): String =

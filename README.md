@@ -29,7 +29,9 @@ the terminal or a browser tab.
   - **Gemini API** — the public Generative Language API with an API key
   - **Vertex AI** — a standard Vertex AI project (OAuth token via `gcloud`)
   - **Vertex via Apigee** — Vertex behind a custom Apigee OAuth gateway
-    (project, location, gateway host, token URL, client id/secret)
+    (project, location, gateway host, token URL, client id/secret). You also
+    list the **accessible agents** your gateway exposes; those become the model
+    picker's choices and the selected one is used as the model identifier
 - **Configurable everything** — every connection parameter lives in
   `Settings → Tools → Gemini Relay`; the API key and Apigee client secret are
   stored in the IDE password safe, never in plaintext config
