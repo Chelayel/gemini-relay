@@ -33,7 +33,11 @@ import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
+import com.intellij.openapi.vfs.VirtualFileManager
+import com.intellij.openapi.vfs.newvfs.BulkFileListener
+import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.ui.JBColor
+import com.intellij.util.Alarm
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
@@ -97,6 +101,8 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     // Live model list (Gemini API mode) and project-discovered agents/skills.
     private var liveModels: List<String> = emptyList()
     private var assets = ProjectAssets.Snapshot(emptyList(), emptyList())
+    // Debounced background rescans, so discovery never blocks the UI.
+    private val assetAlarm = Alarm(Alarm.ThreadToUse.POOLED_THREAD, this)
 
     private val input = JBTextArea(3, 40).apply {
         lineWrap = true
@@ -180,6 +186,30 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         loadProjectMemory()
         scanAssets()
         fetchModels()
+        installAssetWatcher()
+    }
+
+    /** Watch the project's persona/skill folders and rescan (debounced, off-EDT)
+     *  whenever they change — the same "stay fresh without blocking" approach
+     *  editor AI assistants use, instead of re-reading disk on every menu open. */
+    private fun installAssetWatcher() {
+        val connection = ApplicationManager.getApplication().messageBus.connect(this)
+        connection.subscribe(VirtualFileManager.VFS_CHANGES, object : BulkFileListener {
+            override fun after(events: List<VFileEvent>) {
+                if (events.any { isAssetPath(it.path) }) scheduleAssetScan()
+            }
+        })
+    }
+
+    private fun isAssetPath(path: String): Boolean =
+        path.startsWith(workingDir) && ASSET_DIR_MARKERS.any { path.contains(it) }
+
+    private fun scheduleAssetScan() {
+        assetAlarm.cancelAllRequests()
+        assetAlarm.addRequest({
+            val snap = ProjectAssets.scan(workingDir)
+            ApplicationManager.getApplication().invokeLater { assets = snap }
+        }, 400)
     }
 
     /** Fetch the live model list (Gemini API mode) off the EDT. */
@@ -394,8 +424,8 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     // ---- "+" context menu ----------------------------------------------------
 
     private fun showContextMenu() {
-        // Re-scan so personas/skills added since startup appear without a restart.
-        assets = ProjectAssets.scan(workingDir)
+        // Reads the cached snapshot — kept fresh in the background by the file
+        // watcher, so opening the menu never blocks on disk I/O.
         val group = DefaultActionGroup()
         group.add(object : ToggleAction("Auto-attach editor selection") {
             override fun isSelected(e: AnActionEvent) = autoAttachSelection
@@ -412,30 +442,34 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         group.add(action("Add image…", AllIcons.FileTypes.Image) { chooseFiles(imagesOnly = true) })
 
         // Personas from Settings + personas discovered in the project code.
+        // Always shown, so the "where to add them" hint is discoverable.
         val personas = settings.personas.filter { it.name.isNotBlank() } +
             assets.agents.map { Persona(it.name, it.prompt) }
-        if (personas.isNotEmpty()) {
-            group.addSeparator()
-            val sub = DefaultActionGroup("Run as persona (${personas.size})", true)
+        group.addSeparator()
+        val personaSub = DefaultActionGroup("Run as persona (${personas.size})", true)
+        if (personas.isEmpty()) {
+            personaSub.add(disabledInfo("Add in Settings → Personas, or as .md files in .gemini/personas/"))
+        } else {
             personas.forEach { persona ->
-                sub.add(object : ToggleAction(persona.name, persona.prompt.lineSequence().firstOrNull(), null) {
+                personaSub.add(object : ToggleAction(persona.name, persona.prompt.lineSequence().firstOrNull(), null) {
                     override fun isSelected(e: AnActionEvent) = activePersona?.name == persona.name
                     override fun setSelected(e: AnActionEvent, state: Boolean) =
                         setActivePersona(if (state) persona else null)
                 })
             }
-            group.add(sub)
         }
+        group.add(personaSub)
 
         // Skills discovered in the project — attach one as context for this turn.
-        if (assets.skills.isNotEmpty()) {
-            if (personas.isEmpty()) group.addSeparator()
-            val sub = DefaultActionGroup("Skills (${assets.skills.size})", true)
+        val skillSub = DefaultActionGroup("Skills (${assets.skills.size})", true)
+        if (assets.skills.isEmpty()) {
+            skillSub.add(disabledInfo("Add as .gemini/skills/<name>/SKILL.md in your project"))
+        } else {
             assets.skills.forEach { skill ->
-                sub.add(action(skill.name) { addChip(skillChip(skill)) })
+                skillSub.add(action(skill.name) { addChip(skillChip(skill)) })
             }
-            group.add(sub)
         }
+        group.add(skillSub)
 
         JBPopupFactory.getInstance().createActionGroupPopup(
             "Add context", group, DataContext.EMPTY_CONTEXT,
@@ -464,6 +498,13 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private fun action(text: String, icon: Icon? = null, run: () -> Unit): AnAction =
         object : DumbAwareAction(text, null, icon) {
             override fun actionPerformed(e: AnActionEvent) = run()
+        }
+
+    /** A greyed-out, non-clickable menu entry used to show a hint. */
+    private fun disabledInfo(text: String): AnAction =
+        object : DumbAwareAction(text) {
+            override fun actionPerformed(e: AnActionEvent) {}
+            override fun update(e: AnActionEvent) { e.presentation.isEnabled = false }
         }
 
     private fun chooseFiles(imagesOnly: Boolean) {
@@ -910,6 +951,10 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         private val STOP_BG = Color(0x8A, 0x46, 0x42)
         private val IMAGE_EXTS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
         private const val MAX_FILE_CHARS = 40_000
+        private val ASSET_DIR_MARKERS = listOf(
+            "/.gemini/personas/", "/.gemini/agents/", "/.claude/agents/",
+            "/.gemini/skills/", "/.claude/skills/",
+        )
         private val ASK_SYSTEM_PROMPT = """
             You are Gemini Relay in read-only "ask" mode: answer questions about the user's code.
             You cannot modify files or run commands — explain, review, and suggest code in your reply instead.
