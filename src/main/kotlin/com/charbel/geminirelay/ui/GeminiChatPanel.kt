@@ -394,6 +394,8 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     // ---- "+" context menu ----------------------------------------------------
 
     private fun showContextMenu() {
+        // Re-scan so personas/skills added since startup appear without a restart.
+        assets = ProjectAssets.scan(workingDir)
         val group = DefaultActionGroup()
         group.add(object : ToggleAction("Auto-attach editor selection") {
             override fun isSelected(e: AnActionEvent) = autoAttachSelection

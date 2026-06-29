@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.charbel.geminirelay"
-version = "0.4.2"
+version = "0.4.3"
 
 repositories {
     mavenCentral()
