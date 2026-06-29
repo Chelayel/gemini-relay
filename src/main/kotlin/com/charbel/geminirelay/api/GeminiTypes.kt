@@ -1,0 +1,54 @@
+package com.charbel.geminirelay.api
+
+import com.google.gson.JsonObject
+
+/**
+ * The minimal slice of the Gemini `generateContent` schema this plugin needs.
+ * Both the public Generative Language API and Vertex AI accept the same
+ * `contents` / `tools` shape, so one model serves all three connection modes.
+ */
+
+/** One turn in the conversation. `role` is "user" or "model". */
+class Content(val role: String, val parts: List<Part>)
+
+/** A piece of a [Content]. Exactly one of the fields is meaningful per subtype. */
+sealed interface Part {
+    /** Plain text, from the user or the model. */
+    data class Text(val text: String) : Part
+
+    /** Inline binary content (e.g. an image) — Gemini is natively multimodal. */
+    data class InlineData(val mimeType: String, val dataBase64: String) : Part
+
+    /** A model request to invoke a tool. */
+    data class FunctionCall(val name: String, val args: JsonObject) : Part
+
+    /** Our reply to a [FunctionCall], fed back into the next turn. */
+    data class FunctionResponse(val name: String, val response: JsonObject) : Part
+}
+
+/**
+ * A tool the model may call. [parameters] is an OpenAPI-subset JSON schema
+ * object exactly as Gemini expects under `functionDeclarations[].parameters`.
+ */
+class FunctionDecl(
+    val name: String,
+    val description: String,
+    val parameters: JsonObject,
+)
+
+/** Token accounting reported by the API in the final stream chunk. */
+data class Usage(
+    val promptTokens: Long,
+    val candidateTokens: Long,
+    val totalTokens: Long,
+)
+
+/** The assembled result of one streamed model turn. */
+class ModelTurn(
+    val parts: List<Part>,
+    val finishReason: String?,
+    val usage: Usage?,
+) {
+    val text: String get() = parts.filterIsInstance<Part.Text>().joinToString("") { it.text }
+    val functionCalls: List<Part.FunctionCall> get() = parts.filterIsInstance<Part.FunctionCall>()
+}

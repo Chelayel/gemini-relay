@@ -1,0 +1,47 @@
+<idea-plugin>
+    <id>com.charbel.geminirelay</id>
+    <name>Gemini Relay</name>
+    <vendor email="charbelhelayel@gmail.com">Chelayel</vendor>
+
+    <description><![CDATA[
+        <h2>Gemini Relay — Google Gemini, native in your JetBrains IDE</h2>
+        <p>A native chat panel that brings <b>Google Gemini</b> into IntelliJ IDEA, PyCharm, WebStorm,
+        GoLand, Rider and the rest of the JetBrains family — a side-panel coding assistant that talks
+        directly to the Gemini API, to Vertex AI, or to a Vertex deployment behind a custom Apigee
+        gateway, without leaving your IDE or living in the terminal.</p>
+
+        <p><b>Highlights</b></p>
+        <ul>
+            <li><b>Streaming chat</b> with live tool activity — edits, commands, and file reads as they happen</li>
+            <li><b>Agent &amp; Ask modes</b> — let Gemini edit and run commands, or keep it strictly read-only</li>
+            <li><b>Editor-aware</b> — auto-attaches your current selection, so "explain/refactor this" just works</li>
+            <li><b>Attach files &amp; images</b> — pick a file, or paste a screenshot straight into the prompt (Gemini is multimodal)</li>
+            <li><b>Three connection modes</b> — Gemini API key, Vertex AI, or Vertex via Apigee</li>
+            <li><b>Configurable everything</b> — connection parameters in Settings; secrets in the IDE password safe</li>
+        </ul>
+
+        <p>Configure the connection under <b>Settings → Tools → Gemini Relay</b>.</p>
+
+        <p><i>Independent and unofficial — not affiliated with Google. Part of the “Relay” family of
+        IDE companions by Chelayel.</i></p>
+    ]]></description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <extensions defaultExtensionNs="com.intellij">
+        <applicationService serviceImplementation="com.charbel.geminirelay.settings.GeminiSettings"/>
+
+        <applicationConfigurable
+            parentId="tools"
+            instance="com.charbel.geminirelay.settings.GeminiSettingsConfigurable"
+            id="com.charbel.geminirelay.settings"
+            displayName="Gemini Relay"/>
+
+        <toolWindow
+            id="Gemini Relay"
+            anchor="right"
+            secondary="false"
+            icon="/icons/gemini.svg"
+            factoryClass="com.charbel.geminirelay.ui.GeminiToolWindowFactory"/>
+    </extensions>
+</idea-plugin>
