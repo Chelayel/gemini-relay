@@ -6,8 +6,21 @@ import com.charbel.geminirelay.api.Part
 import com.charbel.geminirelay.api.Usage
 import com.charbel.geminirelay.mcp.McpManager
 import com.charbel.geminirelay.settings.GeminiSettings
+import com.google.gson.JsonObject
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
+
+/** How aggressively Agent mode runs tools without asking (mirrors Claude Relay). */
+enum class PermissionMode(val label: String) {
+    ASK("Ask"),
+    ACCEPT_EDITS("Accept edits"),
+    BYPASS("Bypass all");
+
+    override fun toString() = label
+}
+
+/** The user's answer to a permission prompt. */
+enum class PermissionDecision { ALLOW_ONCE, ALLOW_ALWAYS, DENY }
 
 /**
  * Holds one conversation's running history and drives the agentic loop:
@@ -22,6 +35,8 @@ class AgentSession(
 ) {
     private val log = logger<AgentSession>()
     private val history = mutableListOf<Content>()
+    // Tools the user approved "for this chat" (skip future prompts).
+    private val approvedTools = mutableSetOf<String>()
 
     @Volatile private var client: GeminiClient? = null
     @Volatile private var cancelled = false
@@ -40,6 +55,7 @@ class AgentSession(
     fun reset() {
         cancel()
         history.clear()
+        approvedTools.clear()
     }
 
     fun cancel() {
@@ -52,12 +68,19 @@ class AgentSession(
      * [systemPrompt] is the fully-composed instruction for this turn (persona
      * and/or project memory already folded in by the caller).
      */
-    fun send(userParts: List<Part>, askMode: Boolean, systemPrompt: String, listener: Listener) {
+    fun send(
+        userParts: List<Part>,
+        askMode: Boolean,
+        systemPrompt: String,
+        permission: PermissionMode,
+        confirm: (String, String) -> PermissionDecision,
+        listener: Listener,
+    ) {
         cancelled = false
         running = true
         history.add(Content("user", userParts.ifEmpty { listOf(Part.Text("")) }))
         ApplicationManager.getApplication().executeOnPooledThread {
-            runCatching { loop(askMode, systemPrompt, listener) }
+            runCatching { loop(askMode, systemPrompt, permission, confirm, listener) }
                 .onFailure { e ->
                     log.warn("Turn failed", e)
                     edt { listener.onError(describe(e)) }
@@ -74,7 +97,13 @@ class AgentSession(
         return msg ?: "${root::class.simpleName ?: "Error"} (no message)"
     }
 
-    private fun loop(askMode: Boolean, systemPrompt: String, listener: Listener) {
+    private fun loop(
+        askMode: Boolean,
+        systemPrompt: String,
+        permission: PermissionMode,
+        confirm: (String, String) -> PermissionDecision,
+        listener: Listener,
+    ) {
         val tools = Tools(workingDir, settings.commandTimeoutSeconds)
         // Ask mode is strictly read-only: no tools at all.
         val declarations = if (askMode) emptyList() else tools.declarations() + mcp.declarations()
@@ -102,6 +131,21 @@ class AgentSession(
                 val builtin = tools.handles(call.name)
                 val summary = if (builtin) tools.summarize(call.name, call.args) else mcp.summarize(call.name)
                 edt { listener.onToolUse(call.name, summary) }
+
+                if (needsConfirm(permission, call.name, builtin) && call.name !in approvedTools) {
+                    when (confirm(call.name, summary)) {
+                        PermissionDecision.DENY -> {
+                            edt { listener.onToolResult("Denied by user.", true) }
+                            responses.add(Part.FunctionResponse(call.name, JsonObject().apply {
+                                addProperty("error", "The user denied permission to run this tool.")
+                            }))
+                            continue
+                        }
+                        PermissionDecision.ALLOW_ALWAYS -> approvedTools.add(call.name)
+                        PermissionDecision.ALLOW_ONCE -> {}
+                    }
+                }
+
                 val response = if (builtin) tools.execute(call.name, call.args) else mcp.execute(call.name, call.args)
                 val isError = response.has("error")
                 val shown = (response.get("error") ?: response.get("result"))?.asString.orEmpty()
@@ -115,6 +159,21 @@ class AgentSession(
 
         if (!cancelled && iteration >= settings.maxIterations) {
             edt { listener.onError("Reached the ${settings.maxIterations}-step limit without finishing. Send another message to continue.") }
+        }
+    }
+
+    /**
+     * Whether a tool call must be confirmed under [mode]. Read-only built-ins
+     * (readFile/listFiles/searchFiles) never prompt; writeFile prompts only in
+     * ASK; runCommand and any MCP tool prompt unless BYPASS.
+     */
+    private fun needsConfirm(mode: PermissionMode, name: String, builtin: Boolean): Boolean {
+        if (mode == PermissionMode.BYPASS) return false
+        return when {
+            !builtin -> true
+            name == "writeFile" -> mode == PermissionMode.ASK
+            name == "runCommand" -> true
+            else -> false
         }
     }
 

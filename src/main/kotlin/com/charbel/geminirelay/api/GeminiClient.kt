@@ -96,6 +96,35 @@ class GeminiClient(private val settings: GeminiSettings) {
         }
     }
 
+    /**
+     * Lists the models available to the current API key that support
+     * `generateContent`. Only meaningful in Gemini API mode (the public
+     * ListModels endpoint); returns empty for Vertex/Apigee so callers fall
+     * back to the static list / accessible agents.
+     */
+    fun listModels(): List<String> {
+        if (settings.connectionMode != ConnectionMode.GEMINI_API) return emptyList()
+        val key = settings.geminiApiKey
+        if (key.isBlank()) return emptyList()
+
+        val url = URI("https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=${enc(key)}").toURL()
+        val conn = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "GET"
+            connectTimeout = 15_000
+            readTimeout = 20_000
+        }
+        if (conn.responseCode / 100 != 2) return emptyList()
+
+        val body = conn.inputStream.bufferedReader(StandardCharsets.UTF_8).use { it.readText() }
+        val models = JsonParser.parseString(body).asJsonObject.getAsJsonArray("models") ?: return emptyList()
+        return models.mapNotNull { el ->
+            val obj = el.asJsonObject
+            val methods = obj.getAsJsonArray("supportedGenerationMethods")?.mapNotNull { it.asString } ?: emptyList()
+            if ("generateContent" !in methods) return@mapNotNull null
+            obj.get("name")?.takeIf { it.isJsonPrimitive }?.asString?.removePrefix("models/")
+        }.distinct()
+    }
+
     // ---- SSE parsing ---------------------------------------------------------
 
     private fun parseSse(reader: BufferedReader, onText: (String) -> Unit): ModelTurn {

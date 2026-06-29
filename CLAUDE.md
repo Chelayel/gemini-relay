@@ -28,7 +28,9 @@ A native chat GUI for Google Gemini inside JetBrains IDEs. The plugin adds a
 - `agent/Tools` — built-in function declarations + executor (read/write/list/
   search/run), confined to the project dir.
 - `agent/AgentSession` — conversation history + the stream→tool→repeat loop;
-  routes each call to built-in `Tools` or the `McpManager`.
+  routes each call to built-in `Tools` or the `McpManager`. Gates mutating tools
+  via `PermissionMode` (Ask/Accept edits/Bypass) with a blocking confirm callback
+  ("Allow for this chat" remembered per tool).
 - `agent/ProjectMemory` — finds & reads GEMINI.md / AGENTS.md / CLAUDE.md.
 - `mcp/McpClient` — minimal JSON-RPC-over-stdio MCP client (handshake, tools/
   list, tools/call) with schema sanitization for Gemini.

@@ -14,15 +14,25 @@ the terminal or a browser tab.
 - **Agent mode** — Gemini reads, writes, and searches files and runs commands in
   your project via function calling
 - **Ask mode** — read-only answers about your code (no tools)
+- **Permission modes** (Agent mode) — **Ask** (confirm every write/command/MCP
+  call), **Accept edits** (auto-apply file writes, confirm commands & MCP), or
+  **Bypass** (run everything). Read-only tools never prompt; "Allow for this
+  chat" remembers your choice per tool
 - **Editor-aware** — auto-attaches the current editor selection as context, so
   "explain/refactor this" just works
 - **Attach files & images** — pick a file, or paste a screenshot straight into
   the prompt (Gemini is multimodal; images go inline)
-- **Personas (agents)** — named system-prompt presets; pick one from the
-  composer's "+" menu to run a turn as that persona (the Gemini analogue of a
-  Gem / a Claude sub-agent)
+- **Personas** — named system-prompt presets; pick one from the composer's "+"
+  menu ("Run as persona") to run a turn as it. Defined in Settings **or
+  discovered from the project** (`.gemini/personas/`, `.gemini/agents/`, or
+  `.claude/agents/`)
+- **Skills** — discovered from the project (`.gemini/skills/<name>/SKILL.md` or
+  `.claude/...`); attach one from the "+" menu to apply it for a turn
 - **Project memory** — auto-loads a `GEMINI.md` / `AGENTS.md` / `CLAUDE.md` from
   the project root as standing context
+- **Live model list** — in Gemini API mode the picker is populated from Google's
+  ListModels (every model that supports `generateContent`); a Refresh action
+  re-reads models and project agents/skills
 - **MCP tool servers** — connect external Model Context Protocol servers; their
   tools join Gemini's function-calling loop in Agent mode
 - **Three connection modes**, switchable in settings:
@@ -30,8 +40,8 @@ the terminal or a browser tab.
   - **Vertex AI** — a standard Vertex AI project (OAuth token via `gcloud`)
   - **Vertex via Apigee** — Vertex behind a custom Apigee OAuth gateway
     (project, location, gateway host, token URL, client id/secret). You also
-    list the **accessible agents** your gateway exposes; those become the model
-    picker's choices and the selected one is used as the model identifier
+    list the **accessible models** your gateway exposes (required); those become
+    the model picker's choices
 - **Configurable everything** — every connection parameter lives in
   `Settings → Tools → Gemini Relay`; the API key and Apigee client secret are
   stored in the IDE password safe, never in plaintext config

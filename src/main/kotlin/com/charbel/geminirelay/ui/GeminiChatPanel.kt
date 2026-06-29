@@ -1,7 +1,11 @@
 package com.charbel.geminirelay.ui
 
 import com.charbel.geminirelay.agent.AgentSession
+import com.charbel.geminirelay.agent.PermissionDecision
+import com.charbel.geminirelay.agent.PermissionMode
+import com.charbel.geminirelay.agent.ProjectAssets
 import com.charbel.geminirelay.agent.ProjectMemory
+import com.charbel.geminirelay.api.GeminiClient
 import com.charbel.geminirelay.api.Part
 import com.charbel.geminirelay.api.Usage
 import com.charbel.geminirelay.mcp.McpManager
@@ -27,6 +31,7 @@ import com.intellij.openapi.fileEditor.FileEditorManager
 import com.intellij.openapi.options.ShowSettingsUtil
 import com.intellij.openapi.project.DumbAwareAction
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.popup.JBPopupFactory
 import com.intellij.ui.JBColor
 import com.intellij.ui.SimpleListCellRenderer
@@ -89,6 +94,10 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private var activePersona: Persona? = null
     private var projectMemory: String? = null
 
+    // Live model list (Gemini API mode) and project-discovered agents/skills.
+    private var liveModels: List<String> = emptyList()
+    private var assets = ProjectAssets.Snapshot(emptyList(), emptyList())
+
     private val input = JBTextArea(3, 40).apply {
         lineWrap = true
         wrapStyleWord = true
@@ -100,6 +109,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private val stopButton = glyphButton("■", STOP_BG, "Stop").apply { isVisible = false }
     private val modeChip = ChipSelector(Mode.entries.toList(), Mode.AGENT) { it.label }
     private val modelChip = ChipSelector(modelChoices(), currentModel()) { it }
+    private val permissionChip = ChipSelector(PermissionMode.entries.toList(), PermissionMode.ACCEPT_EDITS) { it.label }
     private val statusLabel = JBLabel("").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() }
     private val usageLabel = JBLabel("").apply { foreground = JBColor.GRAY; font = JBUI.Fonts.smallFont() }
     private val busyIcon = AsyncProcessIcon("gemini-busy").apply { isVisible = false }
@@ -156,12 +166,46 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         modelChip.itemsProvider = { modelChoices() }
         modelChip.onChange = { settings.model = modelChip.selected }
         modeChip.toolTipText = "Agent: reads, edits & runs commands  ·  Ask: read-only answers"
+        permissionChip.toolTipText = "How freely Agent mode runs tools — Ask confirms each, Accept edits auto-applies file writes, Bypass runs all"
+        permissionChip.isVisible = modeChip.selected == Mode.AGENT
+        modeChip.onChange = {
+            permissionChip.isVisible = modeChip.selected == Mode.AGENT
+            revalidate(); repaint()
+        }
         installEnterToSend()
         installImagePaste()
         installSelectionTracking()
         updateControls()
         showConfigHintIfNeeded()
         loadProjectMemory()
+        scanAssets()
+        fetchModels()
+    }
+
+    /** Fetch the live model list (Gemini API mode) off the EDT. */
+    private fun fetchModels() {
+        if (settings.connectionMode != ConnectionMode.GEMINI_API || !settings.isConfigured()) return
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val models = runCatching { GeminiClient(settings).listModels() }.getOrDefault(emptyList())
+            if (models.isNotEmpty()) ApplicationManager.getApplication().invokeLater {
+                liveModels = models
+                refreshModelChip()
+            }
+        }
+    }
+
+    /** Discover project agents & skills off the EDT. */
+    private fun scanAssets() {
+        ApplicationManager.getApplication().executeOnPooledThread {
+            val snap = ProjectAssets.scan(workingDir)
+            ApplicationManager.getApplication().invokeLater {
+                val first = assets.isEmpty
+                assets = snap
+                if (first && !snap.isEmpty) {
+                    chat.addSystem("Discovered ${snap.agents.size} persona(s) and ${snap.skills.size} skill(s) in the project.")
+                }
+            }
+        }
     }
 
     /** Pick up GEMINI.md / AGENTS.md / CLAUDE.md off the EDT and note it. */
@@ -245,6 +289,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
             add(contextButton)
             add(modeChip)
             add(modelChip)
+            add(permissionChip)
             addComponentListener(object : ComponentAdapter() {
                 override fun componentResized(e: ComponentEvent) = revalidate()
             })
@@ -271,6 +316,12 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         object : DumbAwareAction("New Chat", "Start a new conversation", AllIcons.General.Add) {
             override fun actionPerformed(e: AnActionEvent) = newSession()
         },
+        object : DumbAwareAction("Refresh", "Re-read available models and project agents/skills", AllIcons.Actions.Refresh) {
+            override fun actionPerformed(e: AnActionEvent) {
+                fetchModels()
+                scanAssets()
+            }
+        },
         object : DumbAwareAction("Settings", "Configure the Gemini / Vertex connection", AllIcons.General.Settings) {
             override fun actionPerformed(e: AnActionEvent) = openSettings()
         },
@@ -288,10 +339,17 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     }
 
     private fun showConfigHintIfNeeded() {
-        if (!settings.isConfigured()) {
-            chat.addSystem("Gemini Relay isn't connected yet. Open Settings (⚙) to choose a mode (${settings.connectionMode.label}) and add credentials.")
-        }
+        if (settings.isConfigured()) return
+        chat.addSystem(notConfiguredMessage())
     }
+
+    /** A message that names exactly what's missing for the current mode. */
+    private fun notConfiguredMessage(): String =
+        if (settings.connectionMode == ConnectionMode.VERTEX_APIGEE && settings.apigeeAgentList().isEmpty()) {
+            "Apigee mode needs at least one accessible model. Open Settings (⚙) and fill in “Accessible models”."
+        } else {
+            "Gemini Relay isn't connected yet. Open Settings (⚙) to set up ${settings.connectionMode.label} and add credentials."
+        }
 
     // ---- editor selection auto-attach ----------------------------------------
 
@@ -351,16 +409,28 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         group.add(action("Add file…", AllIcons.FileTypes.Any_type) { chooseFiles(imagesOnly = false) })
         group.add(action("Add image…", AllIcons.FileTypes.Image) { chooseFiles(imagesOnly = true) })
 
-        val personas = settings.personas.filter { it.name.isNotBlank() }
+        // Personas from Settings + personas discovered in the project code.
+        val personas = settings.personas.filter { it.name.isNotBlank() } +
+            assets.agents.map { Persona(it.name, it.prompt) }
         if (personas.isNotEmpty()) {
             group.addSeparator()
-            val sub = DefaultActionGroup("Run as agent (${personas.size})", true)
+            val sub = DefaultActionGroup("Run as persona (${personas.size})", true)
             personas.forEach { persona ->
                 sub.add(object : ToggleAction(persona.name, persona.prompt.lineSequence().firstOrNull(), null) {
                     override fun isSelected(e: AnActionEvent) = activePersona?.name == persona.name
                     override fun setSelected(e: AnActionEvent, state: Boolean) =
                         setActivePersona(if (state) persona else null)
                 })
+            }
+            group.add(sub)
+        }
+
+        // Skills discovered in the project — attach one as context for this turn.
+        if (assets.skills.isNotEmpty()) {
+            if (personas.isEmpty()) group.addSeparator()
+            val sub = DefaultActionGroup("Skills (${assets.skills.size})", true)
+            assets.skills.forEach { skill ->
+                sub.add(action(skill.name) { addChip(skillChip(skill)) })
             }
             group.add(sub)
         }
@@ -375,6 +445,18 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private fun setActivePersona(persona: Persona?) {
         activePersona = persona
         rebuildContext()
+    }
+
+    /** A project skill attaches as a context part instructing the model to use it. */
+    private fun skillChip(skill: ProjectAssets.Skill): ContextChip {
+        val body = skill.instructions.let { if (it.length > MAX_FILE_CHARS) it.take(MAX_FILE_CHARS) + "\n… (truncated)" else it }
+        return ContextChip(
+            label = "skill: ${skill.name}",
+            icon = null,
+            part = Part.Text("Use the \"${skill.name}\" skill for this request. Its instructions:\n\n$body"),
+            displayMark = "↳ ${skill.name} skill",
+            tooltip = skill.description ?: skill.name,
+        )
     }
 
     private fun action(text: String, icon: Icon? = null, run: () -> Unit): AnAction =
@@ -479,7 +561,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         contextPanel.removeAll()
         // Active persona shows first, as an accent pill.
         activePersona?.let { p ->
-            contextPanel.add(pill("▸ ${p.name}", null, "Running as the \"${p.name}\" agent", accent = true, removeTip = "Clear agent") {
+            contextPanel.add(pill("▸ ${p.name}", null, "Running as the \"${p.name}\" persona", accent = true, removeTip = "Clear persona") {
                 setActivePersona(null)
             })
         }
@@ -555,7 +637,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         val context = contextChips + listOfNotNull(autoChip.takeIf { autoAttachSelection })
         if (text.isEmpty() && context.isEmpty()) return
         if (!settings.isConfigured()) {
-            chat.addError("No credentials for ${settings.connectionMode.label}. Open Settings (⚙) to configure the connection.")
+            chat.addError(notConfiguredMessage())
             openSettings()
             return
         }
@@ -576,7 +658,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         updateControls()
 
         val askMode = modeChip.selected == Mode.ASK
-        session.send(buildParts(text, context), askMode, composeSystemPrompt(askMode, persona), object : AgentSession.Listener {
+        session.send(buildParts(text, context), askMode, composeSystemPrompt(askMode, persona), permissionChip.selected, ::askPermission, object : AgentSession.Listener {
             override fun onAssistantText(text: String) = chat.assistantChunk(text)
             override fun onToolUse(name: String, summary: String) {
                 chat.endAssistant()
@@ -616,6 +698,28 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         if (context.isEmpty()) return text
         val marks = context.joinToString("\n") { it.displayMark }
         return if (text.isBlank()) marks else "$text\n\n$marks"
+    }
+
+    /** Blocking permission prompt (called on the agent thread). */
+    private fun askPermission(toolName: String, summary: String): PermissionDecision {
+        var decision = PermissionDecision.DENY
+        ApplicationManager.getApplication().invokeAndWait {
+            val detail = if (summary.isBlank()) "" else "\n\n$summary"
+            val choice = Messages.showDialog(
+                project,
+                "Allow Gemini to run \"$toolName\"?$detail",
+                "Gemini Relay — Permission",
+                arrayOf("Allow", "Allow for This Chat", "Deny"),
+                0,
+                Messages.getQuestionIcon(),
+            )
+            decision = when (choice) {
+                0 -> PermissionDecision.ALLOW_ONCE
+                1 -> PermissionDecision.ALLOW_ALWAYS
+                else -> PermissionDecision.DENY
+            }
+        }
+        return decision
     }
 
     private fun stop() = session.cancel()
@@ -669,14 +773,17 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         input.isEnabled = !running
     }
 
-    /** Picker choices: in Apigee mode, the accessible agents; otherwise the
+    /** Picker choices: in Apigee mode, the accessible models; otherwise the
      *  suggested Gemini models plus whatever is currently set. */
-    private fun modelChoices(): List<String> =
-        if (settings.connectionMode == ConnectionMode.VERTEX_APIGEE) {
+    private fun modelChoices(): List<String> = when (settings.connectionMode) {
+        ConnectionMode.VERTEX_APIGEE ->
             settings.apigeeAgentList().ifEmpty { listOf(settings.model).filter { it.isNotBlank() } }
-        } else {
-            (GeminiSettings.MODEL_CHOICES + settings.model).filter { it.isNotBlank() }.distinct()
+        ConnectionMode.GEMINI_API -> {
+            val base = liveModels.ifEmpty { GeminiSettings.MODEL_CHOICES }
+            (base + settings.model).filter { it.isNotBlank() }.distinct()
         }
+        else -> (GeminiSettings.MODEL_CHOICES + settings.model).filter { it.isNotBlank() }.distinct()
+    }
 
     private fun currentModel(): String {
         val choices = modelChoices()

@@ -1,7 +1,9 @@
 package com.charbel.geminirelay.settings
 
 import com.intellij.openapi.options.Configurable
+import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.ui.JBColor
 import com.intellij.ui.CollectionListModel
 import com.intellij.ui.SimpleListCellRenderer
 import com.intellij.ui.ToolbarDecorator
@@ -54,6 +56,11 @@ class GeminiSettingsConfigurable : Configurable {
     private val clientIdField = JBTextField()
     private val clientSecretField = JBPasswordField()
     private val apigeeAgentsArea = JBTextArea(4, 40)
+    private val apigeeAgentsWarning = JBLabel("⚠ Required in Apigee mode — add at least one model.").apply {
+        foreground = JBColor.RED
+        font = JBUI.Fonts.smallFont()
+        isVisible = false
+    }
 
     private val systemPromptArea = JBTextArea(6, 50).apply { lineWrap = true; wrapStyleWord = true }
     private val maxIterationsSpinner = JSpinner(SpinnerNumberModel(15, 1, 100, 1))
@@ -76,6 +83,11 @@ class GeminiSettingsConfigurable : Configurable {
 
     override fun createComponent(): JComponent {
         modeCombo.addActionListener { updateEnablement() }
+        apigeeAgentsArea.document.addDocumentListener(object : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = updateEnablement()
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = updateEnablement()
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = updateEnablement()
+        })
 
         val promptScroll = JScrollPane(systemPromptArea).apply {
             preferredSize = Dimension(JBUI.scale(480), JBUI.scale(120))
@@ -102,10 +114,11 @@ class GeminiSettingsConfigurable : Configurable {
             .addLabeledComponent("Token URL:", tokenUrlField)
             .addLabeledComponent("Client ID:", clientIdField)
             .addLabeledComponent("Client secret:", clientSecretField)
-            .addLabeledComponent("Accessible agents:", JScrollPane(apigeeAgentsArea).apply {
+            .addLabeledComponent("Accessible models *:", JScrollPane(apigeeAgentsArea).apply {
                 preferredSize = Dimension(JBUI.scale(360), JBUI.scale(80))
             })
-            .addComponent(hint("Apigee mode only — one agent (model id) per line. These become the model picker's choices."))
+            .addComponent(hint("Required in Apigee mode — one model id per line. These become the model picker's choices."))
+            .addComponent(apigeeAgentsWarning)
             .addSeparator()
             .addComponent(sectionLabel("Agent"))
             .addLabeledComponent("System prompt:", promptScroll)
@@ -113,8 +126,8 @@ class GeminiSettingsConfigurable : Configurable {
             .addLabeledComponent("Command timeout (s):", commandTimeoutSpinner)
             .addComponent(loadMemoryCheck)
             .addSeparator()
-            .addComponent(sectionLabel("Personas (agents)"))
-            .addComponent(hint("Named system-prompt presets — pick one from the composer's “+” menu to run a turn as that agent."))
+            .addComponent(sectionLabel("Personas"))
+            .addComponent(hint("Named system-prompt presets — pick one from the composer's “+” menu to run a turn as that persona. Also auto-discovered from the project."))
             .addComponent(listPanel(personaList, { editDialog(PersonaDialog(null)) }, { editDialog(PersonaDialog(it)) }))
             .addSeparator()
             .addComponent(sectionLabel("MCP tool servers"))
@@ -177,7 +190,11 @@ class GeminiSettingsConfigurable : Configurable {
         clientIdField.isEnabled = apigee
         clientSecretField.isEnabled = apigee
         apigeeAgentsArea.isEnabled = apigee
+        apigeeAgentsWarning.isVisible = apigee && parseAgents(apigeeAgentsArea.text).isEmpty()
     }
+
+    private fun parseAgents(text: String): List<String> =
+        text.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }
 
     override fun isModified(): Boolean =
         (modeCombo.selectedItem as ConnectionMode) != settings.connectionMode ||
@@ -199,6 +216,10 @@ class GeminiSettingsConfigurable : Configurable {
             !mcpEqual(items(mcpModel), settings.mcpServers)
 
     override fun apply() {
+        val selectedMode = modeCombo.selectedItem as ConnectionMode
+        if (selectedMode == ConnectionMode.VERTEX_APIGEE && parseAgents(apigeeAgentsArea.text).isEmpty()) {
+            throw ConfigurationException("Apigee mode requires at least one accessible model. Add one model id per line under “Accessible models”.")
+        }
         settings.connectionMode = modeCombo.selectedItem as ConnectionMode
         settings.model = modelText()
         settings.geminiApiKey = String(apiKeyField.password)
