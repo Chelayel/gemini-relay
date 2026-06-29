@@ -58,10 +58,20 @@ class AgentSession(
         history.add(Content("user", userParts.ifEmpty { listOf(Part.Text("")) }))
         ApplicationManager.getApplication().executeOnPooledThread {
             runCatching { loop(askMode, systemPrompt, listener) }
-                .onFailure { edt { listener.onError(it.message ?: "Unexpected error.") } }
+                .onFailure { e ->
+                    log.warn("Turn failed", e)
+                    edt { listener.onError(describe(e)) }
+                }
             running = false
             edt { listener.onComplete() }
         }
+    }
+
+    /** Always produce something useful, even for exceptions with no message. */
+    private fun describe(e: Throwable): String {
+        val root = generateSequence(e) { it.cause }.last()
+        val msg = root.message?.takeIf { it.isNotBlank() } ?: e.message?.takeIf { it.isNotBlank() }
+        return msg ?: "${root::class.simpleName ?: "Error"} (no message)"
     }
 
     private fun loop(askMode: Boolean, systemPrompt: String, listener: Listener) {

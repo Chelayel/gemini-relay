@@ -49,11 +49,15 @@ class GeminiClient(private val settings: GeminiSettings) {
         } catch (e: UnauthorizedException) {
             log.info("Auth rejected; refreshing token and retrying once.")
             AuthProvider.invalidate()
-            request(contents, systemPrompt, tools, onText)
+            try {
+                request(contents, systemPrompt, tools, onText)
+            } catch (e2: UnauthorizedException) {
+                throw GeminiException(e2.detail)
+            }
         }
     }
 
-    private class UnauthorizedException : RuntimeException()
+    private class UnauthorizedException(val detail: String) : RuntimeException(detail)
 
     private fun request(
         contents: List<Content>,
@@ -78,7 +82,10 @@ class GeminiClient(private val settings: GeminiSettings) {
         conn.outputStream.use { it.write(body.toByteArray(StandardCharsets.UTF_8)) }
 
         val status = conn.responseCode
-        if (status == 401 || status == 403) throw UnauthorizedException()
+        if (status == 401 || status == 403) {
+            val err = conn.errorStream?.let { readAll(it) }.orEmpty()
+            throw UnauthorizedException(humanizeError(status, err))
+        }
         if (status / 100 != 2) {
             val err = conn.errorStream?.let { readAll(it) }.orEmpty()
             throw GeminiException(humanizeError(status, err))
