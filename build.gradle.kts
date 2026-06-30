@@ -4,8 +4,8 @@ plugins {
     id("org.jetbrains.intellij.platform") version "2.17.0"
 }
 
-group = "com.charbel.geminirelay"
-version = "0.5.4"
+group = "com.chelayel.geminirelay"
+version = "0.5.5"
 
 repositories {
     mavenCentral()
