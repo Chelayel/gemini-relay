@@ -78,7 +78,7 @@ class AgentSession(
     ) {
         cancelled = false
         running = true
-        history.add(Content("user", userParts.ifEmpty { listOf(Part.Text("")) }))
+        history.add(Content("user", userParts.ifEmpty { listOf(Part.Text("Please continue.")) }))
         ApplicationManager.getApplication().executeOnPooledThread {
             runCatching { loop(askMode, systemPrompt, permission, confirm, listener) }
                 .onFailure { e ->
@@ -108,9 +108,7 @@ class AgentSession(
         // Ask mode is strictly read-only: no tools at all.
         val declarations = if (askMode) emptyList() else tools.declarations() + mcp.declarations()
 
-        var iteration = 0
-        while (!cancelled && iteration < settings.maxIterations) {
-            iteration++
+        while (!cancelled) {
             val c = GeminiClient(settings)
             client = c
 
@@ -120,10 +118,12 @@ class AgentSession(
             if (cancelled) break
 
             turn.usage?.let { u -> edt { listener.onUsage(u) } }
-            history.add(Content("model", turn.parts))
-
             val calls = turn.functionCalls
-            if (calls.isEmpty()) return
+            if (turn.parts.isNotEmpty()) history.add(Content("model", turn.parts))
+            if (calls.isEmpty()) {
+                if (turn.text.isBlank()) edt { listener.onError(emptyTurnMessage(turn.finishReason)) }
+                return
+            }
 
             val responses = mutableListOf<Part>()
             for (call in calls) {
@@ -156,10 +156,6 @@ class AgentSession(
             // Gemini expects function results in a user-role turn.
             history.add(Content("user", responses))
         }
-
-        if (!cancelled && iteration >= settings.maxIterations) {
-            edt { listener.onError("Reached the ${settings.maxIterations}-step limit without finishing. Send another message to continue.") }
-        }
     }
 
     /**
@@ -182,6 +178,18 @@ class AgentSession(
         if (history.size <= MEMORY_WINDOW) history.toList() else history.takeLast(MEMORY_WINDOW)
 
     private fun edt(block: () -> Unit) = ApplicationManager.getApplication().invokeLater(block)
+
+    /** Explain otherwise-silent empty model turns (commonly safety-blocked). */
+    private fun emptyTurnMessage(finishReason: String?): String = when (finishReason?.uppercase()) {
+        "SAFETY", "BLOCKLIST", "PROHIBITED_CONTENT", "SPII" ->
+            "Gemini blocked this response due to safety filters. Please rephrase and try again."
+        "MAX_TOKENS" ->
+            "Gemini stopped before producing a visible answer (max output tokens reached). Try a shorter request."
+        null, "" ->
+            "Gemini returned an empty response. Please try again."
+        else ->
+            "Gemini returned an empty response (finish reason: $finishReason). Please try again."
+    }
 
     companion object {
         private const val MEMORY_WINDOW = 100

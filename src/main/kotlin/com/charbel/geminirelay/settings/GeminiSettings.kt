@@ -98,8 +98,7 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
 
         // Agent behaviour.
         var systemPrompt: String = DEFAULT_SYSTEM_PROMPT
-        var maxIterations: Int = 15
-        var commandTimeoutSeconds: Int = 60
+        var commandTimeoutSeconds: Int = 300
 
         // Auto-load a project memory file (GEMINI.md / AGENTS.md / CLAUDE.md).
         var loadProjectMemory: Boolean = true
@@ -160,13 +159,9 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
         get() = state.systemPrompt.ifBlank { DEFAULT_SYSTEM_PROMPT }
         set(value) { state.systemPrompt = value }
 
-    var maxIterations: Int
-        get() = state.maxIterations.coerceIn(1, 100)
-        set(value) { state.maxIterations = value.coerceIn(1, 100) }
-
     var commandTimeoutSeconds: Int
-        get() = state.commandTimeoutSeconds.coerceIn(5, 600)
-        set(value) { state.commandTimeoutSeconds = value.coerceIn(5, 600) }
+        get() = state.commandTimeoutSeconds.coerceIn(300, 3600)
+        set(value) { state.commandTimeoutSeconds = value.coerceIn(300, 3600) }
 
     var loadProjectMemory: Boolean
         get() = state.loadProjectMemory

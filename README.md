@@ -1,89 +1,58 @@
-# Gemini Relay for JetBrains
-
-A native chat GUI for **Google Gemini** inside JetBrains IDEs (IntelliJ IDEA,
-PyCharm, WebStorm, GoLand, …) — a side-panel coding assistant, instead of just
-the terminal or a browser tab.
-
-> Independent project, not affiliated with Google. Part of the **"Relay"**
-> family of IDE companions, alongside **Claude Relay** — same look and feel.
-
-## Features
-
-- **Chat tool window** ("Gemini Relay", docked right) with streaming responses
-  and live tool activity
-- **Agent mode** — Gemini reads, writes, and searches files and runs commands in
-  your project via function calling
-- **Ask mode** — read-only answers about your code (no tools)
-- **Permission modes** (Agent mode) — **Ask** (confirm every write/command/MCP
-  call), **Accept edits** (auto-apply file writes, confirm commands & MCP), or
-  **Bypass** (run everything). Read-only tools never prompt; "Allow for this
-  chat" remembers your choice per tool
-- **Editor-aware** — auto-attaches the current editor selection as context, so
-  "explain/refactor this" just works
-- **Attach files & images** — pick a file, or paste a screenshot straight into
-  the prompt (Gemini is multimodal; images go inline)
-- **Personas** — named system-prompt presets; pick one from the composer's "+"
-  menu ("Run as persona") to run a turn as it. Defined in Settings **or
-  discovered from the project** (`.gemini/personas/`, `.gemini/agents/`, or
-  `.claude/agents/`)
-- **Skills** — discovered from the project (`.gemini/skills/<name>/SKILL.md` or
-  `.claude/...`); attach one from the "+" menu to apply it for a turn
-- **Project memory** — auto-loads a `GEMINI.md` / `AGENTS.md` / `CLAUDE.md` from
-  the project root as standing context
-- **Live model list** — in Gemini API mode the picker is populated from Google's
-  ListModels (every model that supports `generateContent`); a Refresh action
-  re-reads models and project agents/skills
-- **MCP tool servers** — connect external Model Context Protocol servers; their
-  tools join Gemini's function-calling loop in Agent mode
-- **Three connection modes**, switchable in settings:
-  - **Gemini API** — the public Generative Language API with an API key
-  - **Vertex AI** — a standard Vertex AI project (OAuth token via `gcloud`)
-  - **Vertex via Apigee** — Vertex behind a custom Apigee OAuth gateway
-    (project, location, gateway host, token URL, client id/secret). You also
-    list the **accessible models** your gateway exposes (required); those become
-    the model picker's choices
-- **Configurable everything** — every connection parameter lives in
-  `Settings → Tools → Gemini Relay`; the API key and Apigee client secret are
-  stored in the IDE password safe, never in plaintext config
-- Runs in the context of the **currently open project**
-
-## Requirements
-
-- A JetBrains IDE, build 242 (2024.2) or newer
-- **JDK 21** (to build)
-- Credentials for one of the connection modes:
-  - *Gemini API*: an API key from Google AI Studio
-  - *Vertex AI*: the `gcloud` CLI installed and authenticated (`gcloud auth login`)
-  - *Vertex via Apigee*: your gateway host plus OAuth2 client-credentials
+A native chat GUI for Google Gemini inside JetBrains IDEs. The plugin adds a
+"Gemini Relay" tool window that calls the Gemini / Vertex REST API directly
+(no CLI) and renders a streaming transcript. Companion to Claude Relay
+(`../claude-code-gui`), which it mirrors in look and feel.
 
 ## Build & run
 
-```bash
-# Launch a sandbox IDE with the plugin loaded:
-./gradlew runIde
+- JDK 21, Gradle 9, IntelliJ Platform Gradle Plugin 2.x.
+- `./gradlew compileKotlin` — fast compile check.
+- `./gradlew runIde` — sandbox IDE with the plugin loaded.
+- `./gradlew buildPlugin` — installable zip in `build/distributions/`.
+- Bump `version` in `build.gradle.kts` before packaging.
 
-# Or build an installable zip:
-./gradlew buildPlugin
-# -> build/distributions/gemini-relay-0.1.0.zip
-```
+## Architecture
 
-## Install into your IDE
+- `settings/GeminiSettings` — app-level config (PersistentStateComponent);
+  secrets (API key, Apigee client secret) live in PasswordSafe. `ConnectionMode`
+  enum = Gemini API / Vertex AI / Vertex via Apigee.
+- `settings/GeminiSettingsConfigurable` — Settings → Tools → Gemini Relay form;
+  enables only the fields the selected mode needs.
+- `api/AuthProvider` — resolves auth per mode: API key (query param), gcloud
+  access token (standard Vertex), or Apigee OAuth client-credentials (cached).
+- `api/GeminiClient` — one streaming `streamGenerateContent` call; parses the
+  SSE stream, emits text deltas, returns the assembled `ModelTurn`.
+- `api/GeminiTypes` — the slim `contents`/`tools` model shared by all backends.
+- `agent/Tools` — built-in function declarations + executor (read/write/list/
+  search/run), confined to the project dir.
+- `agent/AgentSession` — conversation history + the stream→tool→repeat loop;
+  routes each call to built-in `Tools` or the `McpManager`. Gates mutating tools
+  via `PermissionMode` (Ask/Accept edits/Bypass) with a blocking confirm callback
+  ("Allow for this chat" remembered per tool).
+- `agent/ProjectMemory` — finds & reads GEMINI.md / AGENTS.md / CLAUDE.md.
+- `mcp/McpClient` — minimal JSON-RPC-over-stdio MCP client (handshake, tools/
+  list, tools/call) with schema sanitization for Gemini.
+- `mcp/McpManager` — owns configured servers, merges their tools, routes calls.
+- `ui/GeminiChatPanel` — tool window: composer (mode/model chips, "+" context
+  menu, send), attachable context (editor-selection auto-attach, files, and
+  images via multimodal `inlineData`), footer (token usage), title actions
+  (New Chat, Settings).
+- `ui/ChatWebView` / `ui/TranscriptView` — transcript renderers behind the
+  `ChatView` interface (JCEF when available, editor-pane fallback).
 
-`Settings → Plugins → ⚙ → Install Plugin from Disk…` → pick the zip from
-`build/distributions/`, then restart. Open the **Gemini Relay** tool window on
-the right, then click ⚙ (or `Settings → Tools → Gemini Relay`) to configure the
-connection.
+## Conventions
 
-## How it works
+- All UI mutations on the Swing EDT; network/disk/tool work on pooled threads.
+- Register disposables (JCEF browser) with a parent `Disposable`.
+- Parse REST/SSE output defensively — never crash the tool window on bad input.
+- Keep file/command tools confined to the project directory.
+- Target build `242+`; avoid APIs newer than IntelliJ 2024.2 unless guarded.
 
-Each turn sends the conversation to `…:streamGenerateContent?alt=sse` for the
-selected backend and renders the streamed text as it arrives. In Agent mode the
-model's `functionCall`s are executed locally (read / write / list / search /
-run, confined to the project directory) and the results are fed back until the
-model produces a final answer.
+## Status
 
-## Notes / limitations (v0.1)
-
-- Markdown rendering is intentionally lightweight (code blocks, inline code, bold).
-- Agent tools run with your permissions — review what you ask it to do.
-- Standard Vertex obtains its access token by shelling out to `gcloud`.
+v0.1: three connection modes, settings, streaming chat, agent loop, composer
+context system (selection auto-attach, file/image attach, paste), **personas
+(agents)**, **project memory** (GEMINI.md/AGENTS.md/CLAUDE.md), and **MCP tool
+servers**. Part of the "Relay" family alongside Claude Relay. The `--agent`
+*flag* and `.claude/`-folder scanning are not copied (CLI-specific); the
+equivalent capabilities are implemented natively instead.

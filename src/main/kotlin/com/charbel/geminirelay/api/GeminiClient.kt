@@ -65,9 +65,14 @@ class GeminiClient(private val settings: GeminiSettings) {
         tools: List<FunctionDecl>,
         onText: (String) -> Unit,
     ): ModelTurn {
+        val sanitizedContents = sanitizeContents(contents)
+        if (sanitizedContents.isEmpty()) {
+            throw GeminiException("Cannot send an empty prompt. Add text or attach context and try again.")
+        }
+
         val auth = AuthProvider.resolve(settings)
         val url = URI(endpoint(auth)).toURL()
-        val body = buildRequest(contents, systemPrompt, tools).toString()
+        val body = buildRequest(sanitizedContents, systemPrompt, tools).toString()
 
         val conn = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -204,6 +209,19 @@ class GeminiClient(private val settings: GeminiSettings) {
         }
 
         return root
+    }
+
+    /** Drop empty/invalid parts so every content sent to Gemini has at least one usable part. */
+    private fun sanitizeContents(contents: List<Content>): List<Content> = contents.mapNotNull { content ->
+        val parts = content.parts.filter(::isValidPart)
+        if (parts.isEmpty()) null else Content(content.role, parts)
+    }
+
+    private fun isValidPart(part: Part): Boolean = when (part) {
+        is Part.Text -> part.text.isNotBlank()
+        is Part.InlineData -> part.mimeType.isNotBlank() && part.dataBase64.isNotBlank()
+        is Part.FunctionCall -> part.name.isNotBlank()
+        is Part.FunctionResponse -> part.name.isNotBlank()
     }
 
     private fun contentJson(content: Content): JsonObject {

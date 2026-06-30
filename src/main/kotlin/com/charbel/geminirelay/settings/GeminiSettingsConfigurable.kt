@@ -63,8 +63,7 @@ class GeminiSettingsConfigurable : Configurable {
     }
 
     private val systemPromptArea = JBTextArea(6, 50).apply { lineWrap = true; wrapStyleWord = true }
-    private val maxIterationsSpinner = JSpinner(SpinnerNumberModel(15, 1, 100, 1))
-    private val commandTimeoutSpinner = JSpinner(SpinnerNumberModel(60, 5, 600, 1))
+    private val commandTimeoutSpinner = JSpinner(SpinnerNumberModel(300, 300, 3600, 1))
 
     private val loadMemoryCheck = JBCheckBox("Load project memory (GEMINI.md / AGENTS.md / CLAUDE.md) as context")
 
@@ -122,7 +121,6 @@ class GeminiSettingsConfigurable : Configurable {
             .addSeparator()
             .addComponent(sectionLabel("Agent"))
             .addLabeledComponent("System prompt:", promptScroll)
-            .addLabeledComponent("Max steps per turn:", maxIterationsSpinner)
             .addLabeledComponent("Command timeout (s):", commandTimeoutSpinner)
             .addComponent(loadMemoryCheck)
             .addSeparator()
@@ -210,7 +208,6 @@ class GeminiSettingsConfigurable : Configurable {
             String(clientSecretField.password) != settings.apigeeClientSecret ||
             apigeeAgentsArea.text != settings.apigeeAgents ||
             systemPromptArea.text != settings.systemPrompt ||
-            (maxIterationsSpinner.value as Int) != settings.maxIterations ||
             (commandTimeoutSpinner.value as Int) != settings.commandTimeoutSeconds ||
             loadMemoryCheck.isSelected != settings.loadProjectMemory ||
             !personasEqual(items(personaModel), settings.personas) ||
@@ -233,7 +230,6 @@ class GeminiSettingsConfigurable : Configurable {
         settings.apigeeClientSecret = String(clientSecretField.password)
         settings.apigeeAgents = apigeeAgentsArea.text
         settings.systemPrompt = systemPromptArea.text
-        settings.maxIterations = maxIterationsSpinner.value as Int
         settings.commandTimeoutSeconds = commandTimeoutSpinner.value as Int
         settings.loadProjectMemory = loadMemoryCheck.isSelected
         settings.personas.apply { clear(); addAll(items(personaModel)) }
@@ -257,7 +253,6 @@ class GeminiSettingsConfigurable : Configurable {
         apigeeAgentsArea.caretPosition = 0
         systemPromptArea.text = settings.systemPrompt
         systemPromptArea.caretPosition = 0
-        maxIterationsSpinner.value = settings.maxIterations
         commandTimeoutSpinner.value = settings.commandTimeoutSeconds
         loadMemoryCheck.isSelected = settings.loadProjectMemory
         personaModel.replaceAll(settings.personas.map { Persona(it.name, it.prompt) })

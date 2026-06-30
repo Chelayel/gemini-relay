@@ -63,7 +63,6 @@ import java.awt.event.ComponentAdapter
 import java.awt.event.ComponentEvent
 import java.awt.event.FocusAdapter
 import java.awt.event.FocusEvent
-import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
@@ -76,7 +75,9 @@ import javax.swing.ImageIcon
 import javax.swing.JButton
 import javax.swing.JComponent
 import javax.swing.JPanel
+import javax.swing.KeyStroke
 import javax.swing.ScrollPaneConstants
+import javax.swing.text.DefaultEditorKit
 
 /**
  * The Gemini Relay chat tool window: a rich transcript, a prompt composer with
@@ -358,14 +359,18 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     )
 
     private fun installEnterToSend() {
-        input.addKeyListener(object : KeyAdapter() {
-            override fun keyPressed(e: KeyEvent) {
-                if (e.keyCode == KeyEvent.VK_ENTER && !e.isShiftDown) {
-                    e.consume()
-                    send()
-                }
-            }
+        val enter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, 0)
+        val shiftEnter = KeyStroke.getKeyStroke(KeyEvent.VK_ENTER, KeyEvent.SHIFT_DOWN_MASK)
+        val map = input.inputMap
+        val actions = input.actionMap
+
+        map.put(enter, "gemini.send")
+        actions.put("gemini.send", object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent) = send()
         })
+
+        // Keep the textarea default behavior for Shift+Enter explicit and stable.
+        map.put(shiftEnter, DefaultEditorKit.insertBreakAction)
     }
 
     private fun showConfigHintIfNeeded() {
