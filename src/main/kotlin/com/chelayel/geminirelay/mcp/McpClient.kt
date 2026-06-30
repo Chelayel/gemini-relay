@@ -1,6 +1,6 @@
-package com.charbel.geminirelay.mcp
+package com.chelayel.geminirelay.mcp
 
-import com.charbel.geminirelay.settings.McpServerConfig
+import com.chelayel.geminirelay.settings.McpServerConfig
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser

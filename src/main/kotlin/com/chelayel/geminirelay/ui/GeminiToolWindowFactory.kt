@@ -1,4 +1,4 @@
-package com.charbel.geminirelay.ui
+package com.chelayel.geminirelay.ui
 
 import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project

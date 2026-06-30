@@ -1,7 +1,7 @@
-package com.charbel.geminirelay.mcp
+package com.chelayel.geminirelay.mcp
 
-import com.charbel.geminirelay.api.FunctionDecl
-import com.charbel.geminirelay.settings.GeminiSettings
+import com.chelayel.geminirelay.api.FunctionDecl
+import com.chelayel.geminirelay.settings.GeminiSettings
 import com.google.gson.JsonObject
 import com.intellij.openapi.Disposable
 import com.intellij.openapi.diagnostic.logger

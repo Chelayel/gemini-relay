@@ -1,4 +1,4 @@
-package com.charbel.geminirelay.agent
+package com.chelayel.geminirelay.agent
 
 import java.io.File
 

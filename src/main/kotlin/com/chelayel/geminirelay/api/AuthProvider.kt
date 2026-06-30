@@ -1,7 +1,7 @@
-package com.charbel.geminirelay.api
+package com.chelayel.geminirelay.api
 
-import com.charbel.geminirelay.settings.ConnectionMode
-import com.charbel.geminirelay.settings.GeminiSettings
+import com.chelayel.geminirelay.settings.ConnectionMode
+import com.chelayel.geminirelay.settings.GeminiSettings
 import com.google.gson.JsonParser
 import com.intellij.execution.configurations.GeneralCommandLine
 import com.intellij.execution.util.ExecUtil

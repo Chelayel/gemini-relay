@@ -1,6 +1,6 @@
-package com.charbel.geminirelay.agent
+package com.chelayel.geminirelay.agent
 
-import com.charbel.geminirelay.api.FunctionDecl
+import com.chelayel.geminirelay.api.FunctionDecl
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.intellij.execution.configurations.GeneralCommandLine

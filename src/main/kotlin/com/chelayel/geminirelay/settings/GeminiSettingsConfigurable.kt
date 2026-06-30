@@ -1,4 +1,4 @@
-package com.charbel.geminirelay.settings
+package com.chelayel.geminirelay.settings
 
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.ConfigurationException
@@ -235,7 +235,7 @@ class GeminiSettingsConfigurable : Configurable {
         settings.personas.apply { clear(); addAll(items(personaModel)) }
         settings.mcpServers.apply { clear(); addAll(items(mcpModel)) }
         // A credential change may invalidate a cached bearer token.
-        com.charbel.geminirelay.api.AuthProvider.invalidate()
+        com.chelayel.geminirelay.api.AuthProvider.invalidate()
     }
 
     override fun reset() {

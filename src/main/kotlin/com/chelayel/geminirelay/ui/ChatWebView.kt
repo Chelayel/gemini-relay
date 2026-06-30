@@ -1,4 +1,4 @@
-package com.charbel.geminirelay.ui
+package com.chelayel.geminirelay.ui
 
 import com.google.gson.Gson
 import com.intellij.openapi.Disposable

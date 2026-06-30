@@ -1,4 +1,4 @@
-package com.charbel.geminirelay.settings
+package com.chelayel.geminirelay.settings
 
 import com.intellij.credentialStore.CredentialAttributes
 import com.intellij.credentialStore.generateServiceName

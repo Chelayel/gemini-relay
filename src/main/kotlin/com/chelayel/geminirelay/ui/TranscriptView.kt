@@ -1,4 +1,4 @@
-package com.charbel.geminirelay.ui
+package com.chelayel.geminirelay.ui
 
 import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.ui.ColorUtil

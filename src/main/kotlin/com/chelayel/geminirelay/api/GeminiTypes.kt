@@ -1,4 +1,4 @@
-package com.charbel.geminirelay.api
+package com.chelayel.geminirelay.api
 
 import com.google.gson.JsonObject
 

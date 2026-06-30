@@ -1,4 +1,4 @@
-package com.charbel.geminirelay.ui
+package com.chelayel.geminirelay.ui
 
 import java.awt.Container
 import java.awt.Dimension

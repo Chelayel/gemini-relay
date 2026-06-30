@@ -1,11 +1,11 @@
-package com.charbel.geminirelay.agent
+package com.chelayel.geminirelay.agent
 
-import com.charbel.geminirelay.api.Content
-import com.charbel.geminirelay.api.GeminiClient
-import com.charbel.geminirelay.api.Part
-import com.charbel.geminirelay.api.Usage
-import com.charbel.geminirelay.mcp.McpManager
-import com.charbel.geminirelay.settings.GeminiSettings
+import com.chelayel.geminirelay.api.Content
+import com.chelayel.geminirelay.api.GeminiClient
+import com.chelayel.geminirelay.api.Part
+import com.chelayel.geminirelay.api.Usage
+import com.chelayel.geminirelay.mcp.McpManager
+import com.chelayel.geminirelay.settings.GeminiSettings
 import com.google.gson.JsonObject
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger

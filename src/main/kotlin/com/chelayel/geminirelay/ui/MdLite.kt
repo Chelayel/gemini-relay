@@ -1,4 +1,4 @@
-package com.charbel.geminirelay.ui
+package com.chelayel.geminirelay.ui
 
 /**
  * Minimal Markdown → HTML rendering good enough for chat: fenced code blocks,
