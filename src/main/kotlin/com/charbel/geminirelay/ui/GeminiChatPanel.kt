@@ -77,7 +77,6 @@ import javax.swing.JComponent
 import javax.swing.JPanel
 import javax.swing.KeyStroke
 import javax.swing.ScrollPaneConstants
-import javax.swing.text.DefaultEditorKit
 
 /**
  * The Gemini Relay chat tool window: a rich transcript, a prompt composer with
@@ -369,8 +368,14 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
             override fun actionPerformed(e: ActionEvent) = send()
         })
 
-        // Keep the textarea default behavior for Shift+Enter explicit and stable.
-        map.put(shiftEnter, DefaultEditorKit.insertBreakAction)
+        // Shift+Enter inserts a newline. Bind an explicit action rather than the
+        // editor-kit action name, which doesn't reliably resolve in this context.
+        map.put(shiftEnter, "gemini.newline")
+        actions.put("gemini.newline", object : AbstractAction() {
+            override fun actionPerformed(e: ActionEvent) {
+                input.replaceSelection("\n")
+            }
+        })
     }
 
     private fun showConfigHintIfNeeded() {
