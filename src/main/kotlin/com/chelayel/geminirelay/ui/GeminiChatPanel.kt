@@ -162,6 +162,15 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private var hasTitle = false
     private var lastUsage: Usage? = null
 
+    // ---- autonomous "write tests until coverage" loop ------------------------
+    // Active while the Auto-Test loop is running; drives repeated session turns
+    // until the model reports the target line coverage (or the round cap is hit).
+    private var testLoopActive = false
+    private var testLoopTarget = 0
+    private var testLoopRound = 0
+    private var testLoopSystemPrompt = ""
+    private val testLoopBuffer = StringBuilder()
+
     init {
         add(buildHeader(), BorderLayout.NORTH)
         add(chat.component, BorderLayout.CENTER)
@@ -345,6 +354,14 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     fun titleActions(): List<AnAction> = listOf(
         object : DumbAwareAction("New Chat", "Start a new conversation", AllIcons.General.Add) {
             override fun actionPerformed(e: AnActionEvent) = newSession()
+        },
+        object : DumbAwareAction(
+            "Auto-Test to Coverage",
+            "Keep writing and running unit tests until a target coverage is reached",
+            AllIcons.RunConfigurations.TestState.Run,
+        ) {
+            override fun actionPerformed(e: AnActionEvent) = startCoverageRun()
+            override fun update(e: AnActionEvent) { e.presentation.isEnabled = !running }
         },
         object : DumbAwareAction("Refresh", "Re-read available models and project agents/skills", AllIcons.Actions.Refresh) {
             override fun actionPerformed(e: AnActionEvent) {
@@ -775,10 +792,186 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         return decision
     }
 
-    private fun stop() = session.cancel()
+    private fun stop() {
+        testLoopActive = false
+        session.cancel()
+    }
+
+    // ---- autonomous "write tests until coverage" loop ------------------------
+
+    /** Ask for a target coverage, then drive Gemini to write tests until it's met. */
+    private fun startCoverageRun() {
+        if (running) return
+        if (!settings.isConfigured()) {
+            chat.addError(notConfiguredMessage())
+            openSettings()
+            return
+        }
+        val answer = Messages.showInputDialog(
+            project,
+            "Target line coverage to reach (percent). Gemini will keep writing and running " +
+                "unit tests until it gets there, or until $MAX_TEST_ROUNDS rounds pass.",
+            "Auto-Test to Coverage",
+            Messages.getQuestionIcon(),
+            "80",
+            null,
+        )?.trim() ?: return
+        val target = answer.removeSuffix("%").trim().toIntOrNull()
+        if (target == null || target !in 1..100) {
+            Messages.showWarningDialog(project, "Please enter a whole number between 1 and 100.", "Auto-Test to Coverage")
+            return
+        }
+        val proceed = Messages.showYesNoDialog(
+            project,
+            "Gemini will repeatedly run your test suite and create/modify test files on its own — " +
+                "all tool permissions are bypassed for this run — until it reaches $target% line " +
+                "coverage or $MAX_TEST_ROUNDS rounds pass.\n\nUsing model: ${settings.model}.\n\nStart?",
+            "Auto-Test to Coverage",
+            "Start",
+            "Cancel",
+            Messages.getQuestionIcon(),
+        )
+        if (proceed != Messages.YES) return
+
+        testLoopActive = true
+        testLoopTarget = target
+        testLoopRound = 1
+        testLoopBuffer.setLength(0)
+        testLoopSystemPrompt = coverageSystemPrompt(target)
+        if (!hasTitle) setTitle("Auto-test to $target% coverage")
+        chat.addUser("▸ Auto-test: raise line coverage to $target%")
+        beginTestTurn()
+        sendCoverageTurn(
+            "Begin. Target line coverage: $target%. Discover the build and test tooling, run the " +
+                "suite with coverage, report the current number, then start closing the gap.",
+        )
+    }
+
+    /** Fire one turn of the coverage loop against the current session. */
+    private fun sendCoverageTurn(prompt: String) {
+        testLoopBuffer.setLength(0)
+        session.send(
+            listOf(Part.Text(prompt)),
+            false,
+            testLoopSystemPrompt,
+            PermissionMode.BYPASS,
+            ::askPermission,
+            testLoopListener,
+        )
+    }
+
+    /** Put the composer into the busy state used for a coverage turn. */
+    private fun beginTestTurn() {
+        chat.setBusy(true)
+        running = true
+        statusLabel.text = "Writing tests… (round $testLoopRound)"
+        busyIcon.isVisible = true
+        busyIcon.resume()
+        updateControls()
+    }
+
+    /** Streams like a normal turn, but accumulates text and decides whether to loop. */
+    private val testLoopListener = object : AgentSession.Listener {
+        override fun onAssistantText(text: String) {
+            testLoopBuffer.append(text)
+            chat.assistantChunk(text)
+        }
+        override fun onToolUse(name: String, summary: String) {
+            chat.endAssistant()
+            chat.addToolUse(name, summary)
+        }
+        override fun onToolResult(text: String, isError: Boolean) = chat.addToolResult(text, isError)
+        override fun onUsage(usage: Usage) {
+            lastUsage = usage
+            updateUsageLabel()
+        }
+        override fun onError(message: String) {
+            chat.addError(message)
+            testLoopActive = false
+        }
+        override fun onComplete() = onCoverageTurnComplete()
+    }
+
+    /** Parse the round's COVERAGE/STATUS markers and continue, finish, or stop. */
+    private fun onCoverageTurnComplete() {
+        chat.endAssistant()
+        if (!testLoopActive) { // stopped by the user, or errored mid-turn
+            endCoverageLoop("⏹ Auto-test stopped.")
+            return
+        }
+        val transcript = testLoopBuffer.toString()
+        val coverage = parseCoverage(transcript)
+        val done = parseStatus(transcript) == "DONE"
+        val reached = done || (coverage != null && coverage >= testLoopTarget)
+        val shown = coverage?.let { "%.1f%%".format(it) } ?: "unknown"
+
+        if (reached) {
+            endCoverageLoop("✅ Auto-test finished — coverage $shown (target $testLoopTarget%).")
+            return
+        }
+        if (testLoopRound >= MAX_TEST_ROUNDS) {
+            endCoverageLoop("⏹ Auto-test stopped after $MAX_TEST_ROUNDS rounds — coverage $shown, below $testLoopTarget%. Run it again to keep going.")
+            return
+        }
+        testLoopRound++
+        chat.addSystem("↻ Round $testLoopRound — coverage $shown, target $testLoopTarget%. Continuing…")
+        statusLabel.text = "Writing tests… (round $testLoopRound)"
+        sendCoverageTurn(
+            "Latest line coverage: $shown; target is $testLoopTarget%. Keep writing meaningful tests to " +
+                "close the gap, re-run coverage, and finish with the COVERAGE and STATUS lines.",
+        )
+    }
+
+    private fun endCoverageLoop(note: String) {
+        testLoopActive = false
+        chat.addSystem(note)
+        finishTurn()
+    }
+
+    private fun parseCoverage(text: String): Double? =
+        Regex("COVERAGE:\\s*([0-9]+(?:\\.[0-9]+)?)\\s*%?", RegexOption.IGNORE_CASE)
+            .findAll(text).lastOrNull()?.groupValues?.get(1)?.toDoubleOrNull()
+
+    private fun parseStatus(text: String): String? =
+        Regex("STATUS:\\s*(DONE|CONTINUE)", RegexOption.IGNORE_CASE)
+            .findAll(text).lastOrNull()?.groupValues?.get(1)?.uppercase()
+
+    /** The instruction that turns a turn into one round of the coverage loop. */
+    private fun coverageSystemPrompt(target: Int): String {
+        val base = """
+            You are Gemini Relay running an autonomous unit-test writing loop inside the user's project.
+            GOAL: raise this project's automated LINE coverage to at least $target%.
+
+            Work in rounds. In each round, using your tools:
+            1. If you don't already know it, discover the build & test tooling (look for build.gradle(.kts),
+               pom.xml, package.json, pyproject.toml, etc.).
+            2. Run the test suite with coverage enabled via runCommand — e.g. `./gradlew test jacocoTestReport`,
+               `mvn -q test`, `npm test -- --coverage`, `pytest --cov`. If no coverage tool is configured,
+               configure one first (e.g. add the JaCoCo Gradle plugin) with writeFile, then run it.
+            3. Read the generated coverage report (e.g. build/reports/jacoco/**/*.xml or .csv, coverage/lcov.info)
+               with readFile/searchFiles and determine the current overall LINE coverage percentage.
+            4. If it is below $target%, find the least-covered production code and write NEW, meaningful test
+               files (or extend existing ones) with writeFile, then re-run.
+
+            RULES:
+            - Never delete, skip, disable, or weaken existing tests, and never lower the target.
+            - Write real tests that exercise behavior and assert outcomes — no empty or trivially-passing tests
+              just to inflate the number.
+            - Fix any compilation or test failures you introduce before ending a round.
+            - Prefer the project's existing test framework and conventions.
+
+            When you stop calling tools to hand control back, END your message with exactly these two lines,
+            each on its own line with nothing after them:
+            COVERAGE: <latest measured overall line-coverage number>%
+            STATUS: DONE   (only if coverage is >= $target%) — otherwise STATUS: CONTINUE
+        """.trimIndent()
+        val memory = projectMemory?.takeIf { it.isNotBlank() }
+        return if (memory == null) base else "$base\n\n# Project memory\n$memory"
+    }
 
     private fun newSession() {
         if (running) stop()
+        testLoopActive = false
         session.reset()
         session = AgentSession(workingDir, settings, mcp)
         lastUsage = null
@@ -961,6 +1154,8 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         private val STOP_BG = Color(0x8A, 0x46, 0x42)
         private val IMAGE_EXTS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
         private const val MAX_FILE_CHARS = 40_000
+        // Safety cap on autonomous test-writing rounds before we hand control back.
+        private const val MAX_TEST_ROUNDS = 12
         private val ASSET_DIR_MARKERS = listOf(
             "/.gemini/personas/", "/.gemini/agents/", "/.claude/agents/",
             "/.gemini/skills/", "/.claude/skills/",
