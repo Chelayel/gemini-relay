@@ -2,8 +2,8 @@
 
 A native chat GUI for Google Gemini inside JetBrains IDEs. The plugin adds a
 "Gemini Relay" tool window that calls the Gemini / Vertex REST API directly
-(no CLI) and renders a streaming transcript. Companion to Claude Relay
-(`../claude-code-gui`), which it mirrors in look and feel.
+(no CLI) and renders a streaming transcript. Companion to Claude Relay,
+which it mirrors in look and feel.
 
 ## Build & run
 
