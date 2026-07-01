@@ -6,6 +6,8 @@
       <stop offset="1" stop-color="#D96570"/>
     </linearGradient>
   </defs>
-  <path d="M20 3c1.2 6.6 5.4 10.8 12 12-6.6 1.2-10.8 5.4-12 12-1.2-6.6-5.4-10.8-12-12C14.6 13.8 18.8 9.6 20 3Z" fill="url(#g)"/>
-  <path d="M31 24c.5 2.4 2 3.9 4.4 4.4-2.4.5-3.9 2-4.4 4.4-.5-2.4-2-3.9-4.4-4.4 2.4-.5 3.9-2 4.4-4.4Z" fill="url(#g)" opacity="0.9"/>
+  <g stroke="url(#g)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+    <polyline points="12,11 22,20 12,29"/>
+    <polyline points="21,11 31,20 21,29"/>
+  </g>
 </svg>
