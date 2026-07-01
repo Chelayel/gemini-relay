@@ -1155,7 +1155,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         private val IMAGE_EXTS = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
         private const val MAX_FILE_CHARS = 40_000
         // Safety cap on autonomous test-writing rounds before we hand control back.
-        private const val MAX_TEST_ROUNDS = 12
+        private const val MAX_TEST_ROUNDS = 100
         private val ASSET_DIR_MARKERS = listOf(
             "/.gemini/personas/", "/.gemini/agents/", "/.claude/agents/",
             "/.gemini/skills/", "/.claude/skills/",
