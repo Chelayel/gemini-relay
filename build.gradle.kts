@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.chelayel.geminirelay"
-version = "0.5.8"
+version = "1.0.0"
 
 repositories {
     mavenCentral()
