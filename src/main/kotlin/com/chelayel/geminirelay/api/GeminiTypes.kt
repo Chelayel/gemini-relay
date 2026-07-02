@@ -19,8 +19,17 @@ sealed interface Part {
     /** Inline binary content (e.g. an image) — Gemini is natively multimodal. */
     data class InlineData(val mimeType: String, val dataBase64: String) : Part
 
-    /** A model request to invoke a tool. */
-    data class FunctionCall(val name: String, val args: JsonObject) : Part
+    /**
+     * A model request to invoke a tool. [thoughtSignature] is an opaque token
+     * Gemini 2.5+ attaches to the call; it must be echoed back verbatim in the
+     * next request or the API rejects the turn (HTTP 400). Null for models /
+     * backends that don't emit one.
+     */
+    data class FunctionCall(
+        val name: String,
+        val args: JsonObject,
+        val thoughtSignature: String? = null,
+    ) : Part
 
     /** Our reply to a [FunctionCall], fed back into the next turn. */
     data class FunctionResponse(val name: String, val response: JsonObject) : Part

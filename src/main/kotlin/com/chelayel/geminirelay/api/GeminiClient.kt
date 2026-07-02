@@ -162,7 +162,10 @@ class GeminiClient(private val settings: GeminiSettings) {
                 part.getAsJsonObject("functionCall")?.let { fc ->
                     val name = fc.get("name")?.asString ?: return@let
                     val args = fc.getAsJsonObject("args") ?: JsonObject()
-                    calls.add(Part.FunctionCall(name, args))
+                    // The thought signature is a sibling of `functionCall` on the
+                    // part; it must be echoed back verbatim next turn (see below).
+                    val signature = part.get("thoughtSignature")?.takeIf { it.isJsonPrimitive }?.asString
+                    calls.add(Part.FunctionCall(name, args, signature))
                 }
             }
         }
@@ -242,6 +245,9 @@ class GeminiClient(private val settings: GeminiSettings) {
                             addProperty("name", part.name)
                             add("args", part.args)
                         })
+                        // Echo the signature verbatim, as a sibling of functionCall,
+                        // or Gemini 2.5+ rejects the follow-up request (HTTP 400).
+                        part.thoughtSignature?.let { addProperty("thoughtSignature", it) }
                     }
                     is Part.FunctionResponse -> JsonObject().apply {
                         add("functionResponse", JsonObject().apply {
