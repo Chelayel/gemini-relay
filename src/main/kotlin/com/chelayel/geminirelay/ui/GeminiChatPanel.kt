@@ -130,6 +130,11 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         isOpaque = false
         border = JBUI.Borders.empty(7, 10, 1, 10)
         isVisible = false
+        // Reflow the chips (and recompute our height) when the width changes, so
+        // the composer doesn't keep a stale one-row height after a resize.
+        addComponentListener(object : ComponentAdapter() {
+            override fun componentResized(e: ComponentEvent) = revalidate()
+        })
     }
     private val contextButton = JButton(AllIcons.General.Add).apply {
         isFocusable = false
