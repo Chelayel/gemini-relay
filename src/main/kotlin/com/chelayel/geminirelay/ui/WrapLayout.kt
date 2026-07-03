@@ -18,7 +18,17 @@ class WrapLayout(align: Int, hgap: Int, vgap: Int) : FlowLayout(align, hgap, vga
 
     private fun layoutSize(target: Container, preferred: Boolean): Dimension {
         synchronized(target.treeLock) {
-            val targetWidth = if (target.size.width > 0) target.size.width else Int.MAX_VALUE
+            // During the first layout pass (and transiently while resizing) the
+            // target's own width is still 0. Falling back to MAX_VALUE here would
+            // lay every component out on a single row, reporting a huge width and
+            // a too-short height — so the composer/tool-window height "jumps" once
+            // a real width arrives. Walk up to the first ancestor that already has
+            // a width and wrap against that instead.
+            var container: Container = target
+            while (container.size.width == 0 && container.parent != null) {
+                container = container.parent
+            }
+            val targetWidth = if (container.size.width > 0) container.size.width else Int.MAX_VALUE
             val insets = target.insets
             val maxWidth = targetWidth - (insets.left + insets.right + hgap * 2)
 
