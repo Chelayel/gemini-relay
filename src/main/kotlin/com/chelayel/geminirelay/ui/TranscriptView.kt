@@ -8,6 +8,7 @@ import com.intellij.util.ui.UIUtil
 import java.awt.Color
 import javax.swing.JComponent
 import javax.swing.JEditorPane
+import javax.swing.Timer
 import javax.swing.text.html.HTMLEditorKit
 
 /**
@@ -35,8 +36,10 @@ class TranscriptView : ChatView {
     private var streaming = false
 
     override fun clear() {
+        streamFlush.stop()
         body.setLength(0)
         streaming = false
+        streamRaw.setLength(0)
         render()
     }
 
@@ -51,15 +54,21 @@ class TranscriptView : ChatView {
             streamRaw.setLength(0)
         }
         streamRaw.append(text)
-        // Re-render the open block's content in place.
-        renderStreaming()
+        // Re-rendering the whole document per token floods the EDT on long
+        // replies; coalesce to ~25fps via a one-shot timer instead.
+        if (!streamFlush.isRunning) streamFlush.restart()
     }
 
     private val streamRaw = StringBuilder()
+    private val streamFlush = Timer(STREAM_FLUSH_MS) { if (streaming) renderStreaming() }
+        .apply { isRepeats = false }
 
     override fun endAssistant() {
         if (streaming) {
-            body.append("</div></div>")
+            streamFlush.stop()
+            // Persist the streamed text into the transcript body before closing
+            // the block, so the finished reply stays visible.
+            body.append(MdLite.render(streamRaw.toString())).append("</div></div>")
             streaming = false
             streamRaw.setLength(0)
             render()
@@ -155,6 +164,9 @@ class TranscriptView : ChatView {
     }
 
     companion object {
+        // Coalesce streamed tokens to ~25fps so long replies don't flood the EDT.
+        private const val STREAM_FLUSH_MS = 40
+
         private val ACCENT = Color(0x42, 0x85, 0xF4)
     }
 }

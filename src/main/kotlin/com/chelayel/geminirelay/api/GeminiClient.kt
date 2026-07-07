@@ -5,6 +5,7 @@ import com.chelayel.geminirelay.settings.GeminiSettings
 import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.google.gson.JsonParser
+import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.diagnostic.logger
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -30,7 +31,15 @@ class GeminiClient(private val settings: GeminiSettings) {
 
     fun cancel() {
         cancelled = true
-        runCatching { connection?.disconnect() }
+        val conn = connection ?: return
+        // disconnect() closes the socket; for a TLS connection to a slow gateway
+        // (e.g. Apigee) that close sends a close_notify alert — a blocking network
+        // write. The stop button fires on the EDT, so never disconnect inline or
+        // the whole IDE freezes. Do it on a pooled thread; the streaming read
+        // unblocks there and the loop sees `cancelled` and stops.
+        ApplicationManager.getApplication().executeOnPooledThread {
+            runCatching { conn.disconnect() }
+        }
     }
 
     /**

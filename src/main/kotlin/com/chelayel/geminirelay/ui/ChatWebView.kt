@@ -6,6 +6,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager
 import com.intellij.openapi.util.Disposer
 import com.intellij.ui.ColorUtil
 import com.intellij.ui.jcef.JBCefBrowser
+import com.intellij.util.Alarm
 import com.intellij.util.ui.UIUtil
 import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
@@ -26,6 +27,13 @@ class ChatWebView(parent: Disposable) : ChatView {
         .build()
     private val pending = ArrayDeque<String>()
     @Volatile private var ready = false
+
+    // Streaming coalescing: assistant text arrives token-by-token, and each chunk
+    // re-renders the whole markdown block in JCEF. Re-rendering per token floods
+    // the EDT on long replies. Buffer deltas and flush at ~25fps instead. All
+    // access is on the EDT (the Alarm uses the Swing thread).
+    private val streamBuffer = StringBuilder()
+    private val flushAlarm = Alarm(Alarm.ThreadToUse.SWING_THREAD, parent)
 
     override val component: JComponent get() = browser.component
 
@@ -53,16 +61,40 @@ class ChatWebView(parent: Disposable) : ChatView {
 
     private fun q(s: String): String = gson.toJson(s)
 
-    override fun clear() = exec("cc.clear()")
-    override fun addUser(text: String) = exec("cc.user(${q(text)})")
-    override fun assistantChunk(text: String) = exec("cc.assistant(${q(text)})")
-    override fun endAssistant() = exec("cc.endAssistant()")
-    override fun addThinking(text: String) = exec("cc.thinking(${q(text)})")
-    override fun addToolUse(name: String, summary: String) = exec("cc.tool(${q(name)},${q(summary)})")
-    override fun addToolResult(text: String, isError: Boolean) = exec("cc.toolResult(${q(text)},$isError)")
-    override fun addSystem(text: String) = exec("cc.system(${q(text)})")
-    override fun addError(text: String) = exec("cc.error(${q(text)})")
-    override fun setBusy(busy: Boolean) = exec("cc.busy($busy)")
+    /** Push out any buffered assistant text, then run [js] — so streamed text
+     *  never lands after a later message (tool call, error, next user turn). */
+    private fun execOrdered(js: String) {
+        flushStream()
+        exec(js)
+    }
+
+    /** Emit whatever assistant text has accumulated as a single chunk. */
+    private fun flushStream() {
+        flushAlarm.cancelAllRequests()
+        if (streamBuffer.isEmpty()) return
+        val chunk = streamBuffer.toString()
+        streamBuffer.setLength(0)
+        exec("cc.assistant(${q(chunk)})")
+    }
+
+    override fun clear() {
+        flushAlarm.cancelAllRequests()
+        streamBuffer.setLength(0)
+        exec("cc.clear()")
+    }
+
+    override fun addUser(text: String) = execOrdered("cc.user(${q(text)})")
+    override fun assistantChunk(text: String) {
+        streamBuffer.append(text)
+        if (flushAlarm.isEmpty) flushAlarm.addRequest(::flushStream, STREAM_FLUSH_MS)
+    }
+    override fun endAssistant() = execOrdered("cc.endAssistant()")
+    override fun addThinking(text: String) = execOrdered("cc.thinking(${q(text)})")
+    override fun addToolUse(name: String, summary: String) = execOrdered("cc.tool(${q(name)},${q(summary)})")
+    override fun addToolResult(text: String, isError: Boolean) = execOrdered("cc.toolResult(${q(text)},$isError)")
+    override fun addSystem(text: String) = execOrdered("cc.system(${q(text)})")
+    override fun addError(text: String) = execOrdered("cc.error(${q(text)})")
+    override fun setBusy(busy: Boolean) = execOrdered("cc.busy($busy)")
 
     // ---- page ----------------------------------------------------------------
 
@@ -116,6 +148,9 @@ class ChatWebView(parent: Disposable) : ChatView {
     }
 
     companion object {
+        // Coalesce streamed tokens to ~25fps so long replies don't flood the EDT.
+        private const val STREAM_FLUSH_MS = 40
+
         private val ACCENT = Color(0x42, 0x85, 0xF4)
         private const val ACCENT_HEX = "#4285F4"
 
