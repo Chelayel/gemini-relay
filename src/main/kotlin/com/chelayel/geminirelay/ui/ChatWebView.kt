@@ -12,7 +12,12 @@ import org.cef.browser.CefBrowser
 import org.cef.browser.CefFrame
 import org.cef.handler.CefLoadHandlerAdapter
 import java.awt.Color
+import java.awt.Component
+import java.awt.Container
+import java.awt.event.ComponentEvent
+import java.awt.event.HierarchyEvent
 import javax.swing.JComponent
+import javax.swing.SwingUtilities
 
 /**
  * Rich chat transcript rendered in an embedded Chromium (JCEF) view. Messages
@@ -46,9 +51,46 @@ class ChatWebView(parent: Disposable) : ChatView {
                     pending.forEach { run(it) }
                     pending.clear()
                 }
+                // The native browser is now live: re-assert the current bounds in
+                // case the first layout happened before it existed (see syncSize).
+                SwingUtilities.invokeLater { syncSize() }
             }
         }, browser.cefBrowser)
+        installResizeGuard()
         browser.loadHTML(document())
+    }
+
+    /**
+     * Keep the off-screen Chromium surface in step with the Swing component.
+     *
+     * With off-screen rendering the transcript is painted into an off-screen
+     * buffer whose size is driven by resize events on the browser's AWT
+     * component. If the tool window's first layout pass runs before the native
+     * browser has been created, that initial resize is dropped and the page
+     * stays rendered at the tiny startup buffer size — a black, half-height box
+     * that never fills the panel. Re-dispatching the real bounds once the view
+     * is genuinely visible makes Chromium repaint at the correct size.
+     */
+    private fun installResizeGuard() {
+        browser.component.addHierarchyListener { e ->
+            if (e.changeFlags and HierarchyEvent.SHOWING_CHANGED.toLong() != 0L && browser.component.isShowing) {
+                SwingUtilities.invokeLater { syncSize() }
+            }
+        }
+    }
+
+    /** Re-fire a resize down the browser's component tree so JCEF's OSR handler
+     *  re-reads the (now correct) bounds. No-op until the view has real size. */
+    private fun syncSize() {
+        val root = browser.component
+        if (!root.isShowing || root.width <= 0 || root.height <= 0) return
+        fun fire(c: Component) {
+            c.dispatchEvent(ComponentEvent(c, ComponentEvent.COMPONENT_RESIZED))
+            if (c is Container) c.components.forEach { fire(it) }
+        }
+        fire(root)
+        root.revalidate()
+        root.repaint()
     }
 
     private fun exec(js: String) {
