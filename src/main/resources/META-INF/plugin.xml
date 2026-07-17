@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.chelayel.geminirelay</id>
     <name>Gemini Relay</name>
-    <vendor email="charbelhelayel@gmail.com">Chelayel</vendor>
+    <vendor email="charbelhelayel@gmail.com" url="https://github.com/Chelayel/gemini-relay">Chelayel</vendor>
 
     <description><![CDATA[
         <h2>Gemini Relay — Google Gemini, native in your JetBrains IDE</h2>
@@ -22,11 +22,33 @@
 
         <p>Configure the connection under <b>Settings → Tools → Gemini Relay</b>.</p>
 
+        <p>☕ <b>Free and open source</b> (MIT). Source, issues, and contributions:
+        <a href="https://github.com/Chelayel/gemini-relay">github.com/Chelayel/gemini-relay</a>.</p>
+
         <p><i>Independent and unofficial — not affiliated with Google. Part of the “Relay” family of
         IDE companions by Chelayel.</i></p>
     ]]></description>
 
+    <change-notes><![CDATA[
+        <p><b>1.0.5</b> — Restored the rich chat transcript on IntelliJ 2026.2+ (build 262),
+        where JCEF became a separate bundled plugin — the panel now depends on it optionally
+        so the in-browser view works again instead of dropping to plain text. The plain-text
+        fallback also renders at the correct font size when JCEF isn't available.</p>
+        <p><b>1.0.3</b> — Fixed the tool window failing to open on recent IntelliJ builds
+        (<code>NoClassDefFoundError: com/intellij/ui/jcef/JBCefApp</code>): it now degrades to
+        the plain-text transcript instead of failing to initialize.</p>
+        <p><b>1.0.0</b> — First release: native Google Gemini chat panel with streaming
+        transcript &amp; tool activity, Agent &amp; Ask modes, three connection modes
+        (Gemini API, Vertex AI, Vertex via Apigee), editor-aware context, file &amp; image
+        attachments, personas, project memory, and MCP tool servers.</p>
+    ]]></change-notes>
+
     <depends>com.intellij.modules.platform</depends>
+    <!-- JCEF moved into a bundled plugin in 2026.2+ (build 262). Depend on it
+         optionally so the rich in-browser transcript is available where JCEF
+         exists, while the plugin still loads (and falls back to the plain-text
+         transcript) on IDEs/environments without it. -->
+    <depends optional="true" config-file="jcef.xml">com.intellij.modules.jcef</depends>
 
     <extensions defaultExtensionNs="com.intellij">
         <applicationService serviceImplementation="com.chelayel.geminirelay.settings.GeminiSettings"/>
