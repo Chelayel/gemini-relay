@@ -199,7 +199,7 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
         PasswordSafe.instance.setPassword(credentialAttributes(key), value.takeIf { it.isNotBlank() })
 
     private fun credentialAttributes(key: String) =
-        CredentialAttributes(generateServiceName("Gemini Relay", key))
+        CredentialAttributes(generateServiceName("Gemini Relay", key), null)
 
     companion object {
         const val DEFAULT_MODEL = "gemini-2.5-pro"

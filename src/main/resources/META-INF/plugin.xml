@@ -30,6 +30,10 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.0.8</b> — Cleared plugin-verifier warnings: replaced the scheduled-for-removal
+        <code>SimpleListCellRenderer.create(String, Function)</code> overload with its
+        <code>Customizer</code> replacement (4 call sites), and made the credential-attributes
+        lookup use the explicit two-argument constructor.</p>
         <p><b>1.0.6</b> — Refreshed the model list for Google's current lineup and stopped
         requests failing on retired models: a saved model Google has shut down (e.g.
         <code>gemini-3-pro-preview</code>) now auto-migrates to a current default, and the
