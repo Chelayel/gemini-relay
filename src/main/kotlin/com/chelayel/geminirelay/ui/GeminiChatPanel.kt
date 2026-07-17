@@ -89,14 +89,15 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private val settings = GeminiSettings.getInstance()
     private val workingDir = project.basePath ?: System.getProperty("user.dir")
 
+    // JCEF ships in the split "client" classpath (lib/app-client.jar). On some IDE
+    // builds/environments (e.g. the 2025.x frontend split, a JBR without JCEF) that
+    // jar isn't on the plugin's classloader, so touching JBCefApp throws
+    // NoClassDefFoundError. The isSupported() probe must sit inside the try too —
+    // it's the first reference to the class — otherwise tool-window init still fails.
     private val chat: ChatView = run {
-        if (JBCefApp.isSupported()) {
-            try {
-                ChatWebView(this)
-            } catch (t: Throwable) {
-                TranscriptView()
-            }
-        } else {
+        try {
+            if (JBCefApp.isSupported()) ChatWebView(this) else TranscriptView()
+        } catch (t: Throwable) {
             TranscriptView()
         }
     }
