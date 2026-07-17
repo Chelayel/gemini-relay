@@ -5,7 +5,7 @@ import com.intellij.openapi.options.ConfigurationException
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.ui.JBColor
 import com.intellij.ui.CollectionListModel
-import com.intellij.ui.SimpleListCellRenderer
+import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.ui.ToolbarDecorator
 import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
@@ -41,9 +41,7 @@ class GeminiSettingsConfigurable : Configurable {
     private val settings = GeminiSettings.getInstance()
 
     private val modeCombo = JComboBox(DefaultComboBoxModel(ConnectionMode.entries.toTypedArray())).apply {
-        renderer = SimpleListCellRenderer.create<ConnectionMode?> { label, mode, _ ->
-            label.text = mode?.let { "${it.label} — ${it.blurb}" }.orEmpty()
-        }
+        renderer = textListCellRenderer<ConnectionMode?> { mode -> mode?.let { "${it.label} — ${it.blurb}" }.orEmpty() }
     }
     private val modelCombo = JComboBox<String>(comboModel(GeminiSettings.MODEL_CHOICES)).apply { isEditable = true }
 
@@ -71,14 +69,12 @@ class GeminiSettingsConfigurable : Configurable {
 
     private val personaModel = CollectionListModel<Persona>()
     private val personaList = JBList(personaModel).apply {
-        cellRenderer = SimpleListCellRenderer.create<Persona?> { label, persona, _ ->
-            label.text = persona?.name?.ifBlank { "(unnamed)" }.orEmpty()
-        }
+        cellRenderer = textListCellRenderer<Persona?> { persona -> persona?.name?.ifBlank { "(unnamed)" }.orEmpty() }
     }
     private val mcpModel = CollectionListModel<McpServerConfig>()
     private val mcpList = JBList(mcpModel).apply {
-        cellRenderer = SimpleListCellRenderer.create<McpServerConfig?> { label, config, _ ->
-            label.text = config?.let {
+        cellRenderer = textListCellRenderer<McpServerConfig?> { config ->
+            config?.let {
                 (if (it.enabled) it.name else "${it.name} (disabled)") + "  —  ${it.command}"
             }.orEmpty()
         }

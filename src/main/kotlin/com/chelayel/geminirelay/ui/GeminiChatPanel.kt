@@ -38,7 +38,7 @@ import com.intellij.openapi.vfs.newvfs.BulkFileListener
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent
 import com.intellij.ui.JBColor
 import com.intellij.util.Alarm
-import com.intellij.ui.SimpleListCellRenderer
+import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
 import com.intellij.ui.components.JBLabel
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
@@ -1082,9 +1082,7 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private fun <T> showChooser(anchor: java.awt.Component?, items: List<T>, render: (T) -> String, onPick: (T) -> Unit) {
         if (items.isEmpty()) return
         val popup = JBPopupFactory.getInstance().createPopupChooserBuilder(items)
-            .setRenderer(SimpleListCellRenderer.create<T?> { label, item, _ ->
-                label.text = item?.let { render(it) }.orEmpty()
-            })
+            .setRenderer(textListCellRenderer<T?> { item -> item?.let { render(it) }.orEmpty() })
             .setItemChosenCallback { onPick(it) }
             .createPopup()
         if (anchor != null && anchor.isShowing) popup.showUnderneathOf(anchor) else popup.showInFocusCenter()

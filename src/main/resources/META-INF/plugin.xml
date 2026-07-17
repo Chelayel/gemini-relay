@@ -30,6 +30,10 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.0.9</b> — The 1.0.8 fix for <code>SimpleListCellRenderer</code> swapped one
+        scheduled-for-removal overload for another (both static factories are marked for
+        removal). Replaced all 4 call sites with the current <code>textListCellRenderer</code>
+        DSL instead, which carries no deprecation.</p>
         <p><b>1.0.8</b> — Cleared plugin-verifier warnings: replaced the scheduled-for-removal
         <code>SimpleListCellRenderer.create(String, Function)</code> overload with its
         <code>Customizer</code> replacement (4 call sites), and made the credential-attributes
