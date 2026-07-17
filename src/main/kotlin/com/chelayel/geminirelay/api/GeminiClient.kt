@@ -315,7 +315,16 @@ class GeminiClient(private val settings: GeminiSettings) {
             JsonParser.parseString(body).asJsonObject
                 .getAsJsonObject("error")?.get("message")?.asString
         }.getOrNull()
-        return "Gemini request failed (HTTP $status)" + (detail?.let { ": $it" } ?: ". ${body.take(300)}")
+        val base = "Gemini request failed (HTTP $status)" + (detail?.let { ": $it" } ?: ". ${body.take(300)}")
+        // Google retires models (e.g. gemini-3-pro-preview, gemini-2.0-flash); the
+        // request then 404s. Point the user at recovery instead of a raw HTTP error.
+        val modelRetired = status == 404 ||
+            detail?.contains("no longer available", ignoreCase = true) == true ||
+            detail?.contains("not found", ignoreCase = true) == true
+        return if (modelRetired)
+            "$base\n\nThe model \"${settings.model}\" looks unavailable or retired. " +
+                "Pick a current one from the model selector below the prompt (gemini-2.5-pro is a safe default)."
+        else base
     }
 
     private fun readAll(stream: java.io.InputStream): String =

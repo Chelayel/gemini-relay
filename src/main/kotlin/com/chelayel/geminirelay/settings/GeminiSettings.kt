@@ -120,7 +120,9 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
         set(value) { state.connectionMode = value.name }
 
     var model: String
-        get() = state.model.ifBlank { DEFAULT_MODEL }
+        // Transparently migrate a saved model Google has since retired (requests to
+        // it 404) to the current default, so users aren't stuck on a dead selection.
+        get() = state.model.ifBlank { DEFAULT_MODEL }.let { if (it in RETIRED_MODELS) DEFAULT_MODEL else it }
         set(value) { state.model = value.trim() }
 
     var vertexProjectId: String
@@ -202,11 +204,24 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
     companion object {
         const val DEFAULT_MODEL = "gemini-2.5-pro"
 
-        /** Suggested models for the picker; the model field is free-form too. */
+        /** Suggested models for the picker; the model field is free-form too, and
+         *  in Gemini API mode the live ListModels response supersedes this list.
+         *  Kept to current, non-retired models — Google shuts old ones down (e.g.
+         *  gemini-2.0-flash, gemini-3-pro-preview) and requests then 404. */
         val MODEL_CHOICES = listOf(
             "gemini-2.5-pro",
             "gemini-2.5-flash",
+            "gemini-3-flash-preview",
+            "gemini-3.1-pro-preview",
+        )
+
+        /** Models Google has retired — a saved selection of one of these 404s, so
+         *  it's migrated to [DEFAULT_MODEL] on read. Extend as Google shuts more down. */
+        private val RETIRED_MODELS = setOf(
+            "gemini-3-pro-preview",
             "gemini-2.0-flash",
+            "gemini-1.5-pro",
+            "gemini-1.5-flash",
         )
 
         private const val KEY_API = "gemini-api-key"

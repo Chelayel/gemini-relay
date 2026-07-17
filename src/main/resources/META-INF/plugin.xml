@@ -30,6 +30,10 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.0.6</b> — Refreshed the model list for Google's current lineup and stopped
+        requests failing on retired models: a saved model Google has shut down (e.g.
+        <code>gemini-3-pro-preview</code>) now auto-migrates to a current default, and the
+        error shown when a model is gone points you to the model selector.</p>
         <p><b>1.0.5</b> — Restored the rich chat transcript on IntelliJ 2026.2+ (build 262),
         where JCEF became a separate bundled plugin — the panel now depends on it optionally
         so the in-browser view works again instead of dropping to plain text. The plain-text
