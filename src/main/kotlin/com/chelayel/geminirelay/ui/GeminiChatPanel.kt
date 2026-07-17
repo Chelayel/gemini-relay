@@ -89,7 +89,17 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private val settings = GeminiSettings.getInstance()
     private val workingDir = project.basePath ?: System.getProperty("user.dir")
 
-    private val chat: ChatView = if (JBCefApp.isSupported()) ChatWebView(this) else TranscriptView()
+    private val chat: ChatView = run {
+        if (JBCefApp.isSupported()) {
+            try {
+                ChatWebView(this)
+            } catch (t: Throwable) {
+                TranscriptView()
+            }
+        } else {
+            TranscriptView()
+        }
+    }
     private val mcp = McpManager(settings)
     private var session = AgentSession(workingDir, settings, mcp)
 
@@ -1071,7 +1081,9 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
     private fun <T> showChooser(anchor: java.awt.Component?, items: List<T>, render: (T) -> String, onPick: (T) -> Unit) {
         if (items.isEmpty()) return
         val popup = JBPopupFactory.getInstance().createPopupChooserBuilder(items)
-            .setRenderer(SimpleListCellRenderer.create<T>("") { render(it) })
+            .setRenderer(SimpleListCellRenderer.create<T?>("") { item ->
+                item?.let { render(it) }.orEmpty()
+            })
             .setItemChosenCallback { onPick(it) }
             .createPopup()
         if (anchor != null && anchor.isShowing) popup.showUnderneathOf(anchor) else popup.showInFocusCenter()

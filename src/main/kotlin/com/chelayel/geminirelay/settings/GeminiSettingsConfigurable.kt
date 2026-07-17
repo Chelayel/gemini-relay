@@ -41,7 +41,9 @@ class GeminiSettingsConfigurable : Configurable {
     private val settings = GeminiSettings.getInstance()
 
     private val modeCombo = JComboBox(DefaultComboBoxModel(ConnectionMode.entries.toTypedArray())).apply {
-        renderer = SimpleListCellRenderer.create("") { "${it.label} — ${it.blurb}" }
+        renderer = SimpleListCellRenderer.create<ConnectionMode?>("") { mode ->
+            mode?.let { "${it.label} — ${it.blurb}" }.orEmpty()
+        }
     }
     private val modelCombo = JComboBox<String>(comboModel(GeminiSettings.MODEL_CHOICES)).apply { isEditable = true }
 
@@ -69,12 +71,16 @@ class GeminiSettingsConfigurable : Configurable {
 
     private val personaModel = CollectionListModel<Persona>()
     private val personaList = JBList(personaModel).apply {
-        cellRenderer = SimpleListCellRenderer.create("") { it.name.ifBlank { "(unnamed)" } }
+        cellRenderer = SimpleListCellRenderer.create<Persona?>("") { persona ->
+            persona?.name?.ifBlank { "(unnamed)" }.orEmpty()
+        }
     }
     private val mcpModel = CollectionListModel<McpServerConfig>()
     private val mcpList = JBList(mcpModel).apply {
-        cellRenderer = SimpleListCellRenderer.create("") {
-            (if (it.enabled) it.name else "${it.name} (disabled)") + "  —  ${it.command}"
+        cellRenderer = SimpleListCellRenderer.create<McpServerConfig?>("") { config ->
+            config?.let {
+                (if (it.enabled) it.name else "${it.name} (disabled)") + "  —  ${it.command}"
+            }.orEmpty()
         }
     }
 
