@@ -112,9 +112,15 @@ class GeminiClient(private val settings: GeminiSettings) {
 
     /**
      * Lists the models available to the current API key that support
-     * `generateContent`. Only meaningful in Gemini API mode (the public
-     * ListModels endpoint); returns empty for Vertex/Apigee so callers fall
-     * back to the static list / accessible agents.
+     * `generateContent`, newest family first and without the ones this tool
+     * window can't drive (embeddings, TTS, Live, image and video generation).
+     * The picker takes the first entry when the saved model is gone, so the
+     * order is the difference between landing on the current flagship and
+     * landing on whatever the API happened to return first.
+     *
+     * Only meaningful in Gemini API mode (the public ListModels endpoint);
+     * returns empty for Vertex/Apigee so callers fall back to the static list
+     * / accessible agents.
      */
     fun listModels(): List<String> {
         if (settings.connectionMode != ConnectionMode.GEMINI_API) return emptyList()
@@ -136,8 +142,23 @@ class GeminiClient(private val settings: GeminiSettings) {
             val methods = obj.getAsJsonArray("supportedGenerationMethods")?.mapNotNull { it.asString } ?: emptyList()
             if ("generateContent" !in methods) return@mapNotNull null
             obj.get("name")?.takeIf { it.isJsonPrimitive }?.asString?.removePrefix("models/")
-        }.distinct()
+        }.filter { isChatModel(it) }
+            .distinct()
+            .sortedWith(compareByDescending<String> { familyVersion(it) }.thenBy { it })
     }
+
+    /** Families the chat panel has nothing to do with, plus the dated snapshots
+     *  (`-001`, `-preview-05-20`) that only clutter a picker next to the alias. */
+    private fun isChatModel(id: String): Boolean {
+        if (NON_CHAT_MARKERS.any { it in id }) return false
+        return !DATED_SNAPSHOT.containsMatchIn(id)
+    }
+
+    /** The generation as a number — 3.7 from `gemini-3.7-flash`, 3.0 from
+     *  `gemini-3-flash-preview` — so newer families sort first whatever the
+     *  API's own ordering is. Unrecognised ids sort last, not first. */
+    private fun familyVersion(id: String): Double =
+        FAMILY.find(id)?.groupValues?.get(1)?.toDoubleOrNull() ?: -1.0
 
     // ---- SSE parsing ---------------------------------------------------------
 
@@ -323,7 +344,8 @@ class GeminiClient(private val settings: GeminiSettings) {
             detail?.contains("not found", ignoreCase = true) == true
         return if (modelRetired)
             "$base\n\nThe model \"${settings.model}\" looks unavailable or retired. " +
-                "Pick a current one from the model selector below the prompt (gemini-2.5-pro is a safe default)."
+                "Pick a current one from the model selector below the prompt " +
+                "(${GeminiSettings.DEFAULT_MODEL} is a safe default)."
         else base
     }
 
@@ -336,4 +358,19 @@ class GeminiClient(private val settings: GeminiSettings) {
     private fun JsonArray.firstOrNull() = if (size() > 0) get(0) else null
 
     class GeminiException(message: String) : RuntimeException(message)
+
+    private companion object {
+        /** `generateContent` is offered by more than chat models — embeddings,
+         *  speech, Live and the image/video generators all answer to it and none
+         *  of them belong in this picker. */
+        val NON_CHAT_MARKERS = listOf(
+            "embedding", "aqa", "imagen", "veo", "-tts", "-live", "-image", "learnlm", "gemma",
+        )
+
+        /** A dated or numbered snapshot — `-001`, `-preview-05-20`, `-latest`. */
+        val DATED_SNAPSHOT = Regex("-(\\d{3}|latest|\\d{2}-\\d{2})$")
+
+        /** The generation in a Gemini id: `gemini-3.7-flash` → 3.7, `gemini-3-flash` → 3. */
+        val FAMILY = Regex("gemini-(\\d+(?:\\.\\d+)?)")
+    }
 }

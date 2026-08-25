@@ -1041,10 +1041,11 @@ class GeminiChatPanel(private val project: Project) : JPanel(BorderLayout()), Di
         ConnectionMode.VERTEX_APIGEE ->
             settings.apigeeAgentList().ifEmpty { listOf(settings.model).filter { it.isNotBlank() } }
         ConnectionMode.GEMINI_API -> {
-            val base = liveModels.ifEmpty { GeminiSettings.MODEL_CHOICES }
+            val base = liveModels.ifEmpty { GeminiSettings.modelChoices(settings.connectionMode) }
             (base + settings.model).filter { it.isNotBlank() }.distinct()
         }
-        else -> (GeminiSettings.MODEL_CHOICES + settings.model).filter { it.isNotBlank() }.distinct()
+        else -> (GeminiSettings.modelChoices(settings.connectionMode) + settings.model)
+            .filter { it.isNotBlank() }.distinct()
     }
 
     private fun currentModel(): String {

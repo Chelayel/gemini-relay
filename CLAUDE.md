@@ -17,7 +17,11 @@ which it mirrors in look and feel.
 
 - `settings/GeminiSettings` — app-level config (PersistentStateComponent);
   secrets (API key, Apigee client secret) live in PasswordSafe. `ConnectionMode`
-  enum = Gemini API / Vertex AI / Vertex via Apigee.
+  enum = Gemini API / Vertex AI / Vertex via Apigee. Also the model catalogue:
+  the default (`gemini-3.7-flash`), the per-mode shortlist, and `canonicalModel`
+  — Vertex and the Gemini API name the same model differently
+  (`gemini-3.1-pro` / `gemini-3.1-pro-preview`), and Google retires ids outright,
+  so a saved selection is translated or replaced on read rather than 404-ing.
 - `settings/GeminiSettingsConfigurable` — Settings → Tools → Gemini Relay form;
   enables only the fields the selected mode needs.
 - `api/AuthProvider` — resolves auth per mode: API key (query param), gcloud

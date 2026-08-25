@@ -43,7 +43,9 @@ class GeminiSettingsConfigurable : Configurable {
     private val modeCombo = JComboBox(DefaultComboBoxModel(ConnectionMode.entries.toTypedArray())).apply {
         renderer = textListCellRenderer<ConnectionMode?> { mode -> mode?.let { "${it.label} — ${it.blurb}" }.orEmpty() }
     }
-    private val modelCombo = JComboBox<String>(comboModel(GeminiSettings.MODEL_CHOICES)).apply { isEditable = true }
+    private val modelCombo = JComboBox<String>(
+        comboModel(GeminiSettings.modelChoices(ConnectionMode.GEMINI_API)),
+    ).apply { isEditable = true }
 
     private val apiKeyField = JBPasswordField()
 
@@ -192,6 +194,24 @@ class GeminiSettingsConfigurable : Configurable {
         clientSecretField.isEnabled = apigee
         apigeeAgentsArea.isEnabled = apigee
         apigeeAgentsWarning.isVisible = apigee && parseAgents(apigeeAgentsArea.text).isEmpty()
+
+        syncModelChoices(mode)
+    }
+
+    /** Keep the suggestions in the (still free-form) model box matching the mode:
+     *  Apigee offers only what the gateway lists, and the two Google surfaces name
+     *  some models differently, so a selection with an equivalent id follows along.  */
+    private fun syncModelChoices(mode: ConnectionMode) {
+        val suggested =
+            if (mode == ConnectionMode.VERTEX_APIGEE) parseAgents(apigeeAgentsArea.text)
+            else GeminiSettings.modelChoices(mode)
+        val current = GeminiSettings.canonicalModel(modelText(), mode)
+        val choices = (suggested + current).filter { it.isNotBlank() }.distinct()
+        // Rebuilt on every enablement pass, including each keystroke in the agents
+        // area — skip the churn (and the editor reset) when nothing changed.
+        val shown = (0 until modelCombo.model.size).map { modelCombo.model.getElementAt(it) }
+        if (choices != shown) modelCombo.model = comboModel(choices)
+        if (modelText() != current) modelCombo.selectedItem = current
     }
 
     private fun parseAgents(text: String): List<String> =

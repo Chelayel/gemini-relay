@@ -30,6 +30,14 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.1.0</b> — Current models by default. New chats now use
+        <code>gemini-3.7-flash</code>, Google's current model for coding and agentic work,
+        instead of <code>gemini-2.5-pro</code>, and the suggested list follows the 3.x lineup.
+        The list also matches the connection mode — Vertex names some models differently from
+        the Gemini API, and a selection that has an equivalent id is translated when you switch
+        modes rather than left to fail with a 404. In Gemini API mode the live model list is
+        sorted newest-generation first and no longer offers models this panel can't drive
+        (embeddings, TTS, Live, image and video generation).</p>
         <p><b>1.0.9</b> — The 1.0.8 fix for <code>SimpleListCellRenderer</code> swapped one
         scheduled-for-removal overload for another (both static factories are marked for
         removal). Replaced all 4 call sites with the current <code>textListCellRenderer</code>

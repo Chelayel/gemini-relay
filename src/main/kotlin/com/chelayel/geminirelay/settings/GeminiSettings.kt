@@ -121,8 +121,9 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
 
     var model: String
         // Transparently migrate a saved model Google has since retired (requests to
-        // it 404) to the current default, so users aren't stuck on a dead selection.
-        get() = state.model.ifBlank { DEFAULT_MODEL }.let { if (it in RETIRED_MODELS) DEFAULT_MODEL else it }
+        // it 404) to the current default, so users aren't stuck on a dead selection,
+        // and translate ids that exist under a different name in the active mode.
+        get() = canonicalModel(state.model.ifBlank { DEFAULT_MODEL }, connectionMode)
         set(value) { state.model = value.trim() }
 
     var vertexProjectId: String
@@ -202,27 +203,71 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
         CredentialAttributes(generateServiceName("Gemini Relay", key), null)
 
     companion object {
-        const val DEFAULT_MODEL = "gemini-2.5-pro"
+        /** Google's current workhorse for coding and agentic work, and the one id
+         *  that is GA under the same name in every mode. The 2.5 family it replaces
+         *  is two generations behind and a poor default for an agent loop. */
+        const val DEFAULT_MODEL = "gemini-3.7-flash"
 
-        /** Suggested models for the picker; the model field is free-form too, and
-         *  in Gemini API mode the live ListModels response supersedes this list.
-         *  Kept to current, non-retired models — Google shuts old ones down (e.g.
-         *  gemini-2.0-flash, gemini-3-pro-preview) and requests then 404. */
-        val MODEL_CHOICES = listOf(
+        /** Gemini API id → Vertex id, for the models the two name differently.
+         *  A preview on one surface is often GA on the other, and sending the
+         *  wrong spelling 404s, so the id is translated for the active mode
+         *  rather than left to fail after the user switches modes. */
+        private val VERTEX_IDS = mapOf(
+            "gemini-3.1-pro-preview" to "gemini-3.1-pro",
+            "gemini-3-flash-preview" to "gemini-3-flash",
+        )
+
+        private val GEMINI_API_IDS = VERTEX_IDS.entries.associate { (api, vertex) -> vertex to api }
+
+        /** Suggested models for the picker, best first; the model field is free-form
+         *  too, and in Gemini API mode the live ListModels response supersedes this
+         *  list. Kept to current, non-retired models — Google shuts old ones down
+         *  (e.g. gemini-2.0-flash, gemini-3-pro-preview) and requests then 404. */
+        private val GEMINI_API_MODELS = listOf(
+            "gemini-3.7-flash",
+            "gemini-3.1-pro-preview",
+            "gemini-3.6-flash",
+            "gemini-3.5-flash",
+            "gemini-3.5-flash-lite",
             "gemini-2.5-pro",
             "gemini-2.5-flash",
-            "gemini-3-flash-preview",
-            "gemini-3.1-pro-preview",
         )
+
+        /** The same shortlist as Vertex names it: models the Gemini API still
+         *  publishes as previews are GA there, under an id without the suffix. */
+        private val VERTEX_MODELS = GEMINI_API_MODELS.map { VERTEX_IDS[it] ?: it }
+
+        /** Suggested models for [mode]. Apigee exposes only what the gateway lists,
+         *  so callers use the configured agent list there and fall back to these. */
+        fun modelChoices(mode: ConnectionMode): List<String> =
+            if (mode == ConnectionMode.GEMINI_API) GEMINI_API_MODELS else VERTEX_MODELS
 
         /** Models Google has retired — a saved selection of one of these 404s, so
          *  it's migrated to [DEFAULT_MODEL] on read. Extend as Google shuts more down. */
         private val RETIRED_MODELS = setOf(
             "gemini-3-pro-preview",
             "gemini-2.0-flash",
+            "gemini-2.0-flash-001",
+            "gemini-2.0-flash-lite",
+            "gemini-2.0-flash-lite-001",
             "gemini-1.5-pro",
             "gemini-1.5-flash",
+            "gemini-1.0-pro",
+            "gemini-pro",
         )
+
+        /** The id [model] goes by in [mode], with retired models replaced outright. */
+        fun canonicalModel(model: String, mode: ConnectionMode): String {
+            val trimmed = model.trim()
+            if (trimmed.isEmpty() || trimmed in RETIRED_MODELS) return canonicalModel(DEFAULT_MODEL, mode)
+            // Only the two Google-hosted surfaces are known to rename models; an
+            // Apigee gateway publishes its own ids, so leave those untouched.
+            return when (mode) {
+                ConnectionMode.GEMINI_API -> GEMINI_API_IDS[trimmed] ?: trimmed
+                ConnectionMode.VERTEX -> VERTEX_IDS[trimmed] ?: trimmed
+                ConnectionMode.VERTEX_APIGEE -> trimmed
+            }
+        }
 
         private const val KEY_API = "gemini-api-key"
         private const val KEY_APIGEE_SECRET = "apigee-client-secret"
