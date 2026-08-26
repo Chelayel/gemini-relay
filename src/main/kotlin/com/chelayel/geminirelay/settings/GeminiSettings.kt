@@ -199,8 +199,11 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
     private fun writeSecret(key: String, value: String) =
         PasswordSafe.instance.setPassword(credentialAttributes(key), value.takeIf { it.isNotBlank() })
 
-    private fun credentialAttributes(key: String) =
-        CredentialAttributes(generateServiceName("Gemini Relay", key), null)
+    /** Same service name and null user name as every previous release, so secrets
+     *  already in PasswordSafe keep resolving. Built in Java — see
+     *  [GeminiCredentialAttributes] for why Kotlin cannot reach that constructor. */
+    private fun credentialAttributes(key: String): CredentialAttributes =
+        GeminiCredentialAttributes.forService(generateServiceName("Gemini Relay", key))
 
     companion object {
         /** Google's current workhorse for coding and agentic work, and the one id

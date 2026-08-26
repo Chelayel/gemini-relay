@@ -30,6 +30,13 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.1.1</b> — Cleared the last plugin-verifier warning. The 1.0.8 switch to the
+        two-argument <code>CredentialAttributes</code> constructor still compiled down to the
+        deprecated one, because every Kotlin call site goes through the same defaults bridge;
+        the attributes are now built through the constructor that carries no deprecation.
+        Nothing about the plugin's behaviour changes, and the service name and user name used
+        for the keychain entries are unchanged, so a saved API key or Apigee client secret
+        still loads after the update.</p>
         <p><b>1.1.0</b> — Current models by default. New chats now use
         <code>gemini-3.7-flash</code>, Google's current model for coding and agentic work,
         instead of <code>gemini-2.5-pro</code>, and the suggested list follows the 3.x lineup.
