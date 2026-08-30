@@ -34,6 +34,9 @@ class McpClient(private val config: McpServerConfig) {
     private var nextId = 0
     private var connected = false
 
+    /** The tail of the server's stderr, for reporting a startup that failed. */
+    private val stderrTail = ArrayDeque<String>()
+
     @Synchronized
     fun ensureConnected() {
         if (connected) return
@@ -46,6 +49,25 @@ class McpClient(private val config: McpServerConfig) {
         process = p
         writer = BufferedWriter(OutputStreamWriter(p.outputStream, StandardCharsets.UTF_8))
         reader = BufferedReader(InputStreamReader(p.inputStream, StandardCharsets.UTF_8))
+
+        // MCP servers log to stderr, often chattily. An undrained stderr pipe
+        // fills its OS buffer and the server blocks writing to it — which looks
+        // from here like a server that handshook and then stopped answering.
+        // Keep the last few lines: when a server dies on startup, its stderr is
+        // the only thing that says why.
+        Thread {
+            runCatching {
+                BufferedReader(InputStreamReader(p.errorStream, StandardCharsets.UTF_8)).use { err ->
+                    while (true) {
+                        val line = err.readLine() ?: break
+                        synchronized(stderrTail) {
+                            stderrTail.addLast(line)
+                            if (stderrTail.size > STDERR_TAIL_LINES) stderrTail.removeFirst()
+                        }
+                    }
+                }
+            }
+        }.apply { isDaemon = true; name = "mcp-${config.name}-stderr"; start() }
 
         val init = JsonObject().apply {
             addProperty("protocolVersion", "2024-11-05")
@@ -83,8 +105,15 @@ class McpClient(private val config: McpServerConfig) {
         val result = rpc("tools/call", params)
         val content = result.getAsJsonArray("content") ?: return result.toString()
         val text = content.mapNotNull { it.asJsonObject.get("text")?.asString }.joinToString("\n")
-        return text.ifBlank { "(no text content)" }
+        // `isError` marks a tool that ran and failed, as opposed to a transport
+        // fault; surface the text either way so the model can correct itself.
+        val failed = result.get("isError")?.takeIf { it.isJsonPrimitive }?.asBoolean == true
+        val body = text.ifBlank { "(no text content)" }
+        return if (failed) "The tool reported an error: $body" else body
     }
+
+    /** The last lines the server wrote to stderr, if any. */
+    fun stderrTail(): String = synchronized(stderrTail) { stderrTail.joinToString("\n") }
 
     @Synchronized
     fun close() {
@@ -112,9 +141,12 @@ class McpClient(private val config: McpServerConfig) {
         val future = io.submit<JsonObject> {
             val r = reader ?: error("MCP server not connected")
             while (true) {
-                val line = r.readLine() ?: error("MCP server '${config.name}' closed the connection")
+                val line = r.readLine() ?: error(closedMessage())
                 val msg = runCatching { JsonParser.parseString(line).asJsonObject }.getOrNull() ?: continue
-                if (!msg.has("id") || msg.get("id").asInt != id) continue
+                // A notification has no id, and a parse-error reply has a null
+                // one; `asInt` throws on both, which killed the read loop.
+                if (!msg.has("id") || msg.get("id").isJsonNull) continue
+                if (runCatching { msg.get("id").asInt }.getOrNull() != id) continue
                 msg.getAsJsonObject("error")?.let { err ->
                     error("MCP '$method' failed: ${err.get("message")?.asString ?: err}")
                 }
@@ -124,6 +156,17 @@ class McpClient(private val config: McpServerConfig) {
         }
         return runCatching { future.get(45, TimeUnit.SECONDS) }
             .getOrElse { throw RuntimeException("MCP '$method' on '${config.name}': ${it.cause?.message ?: it.message}") }
+    }
+
+    /** A server that closed its pipe usually said why on stderr first. */
+    private fun closedMessage(): String {
+        val tail = stderrTail().takeIf { it.isNotBlank() }
+        val exit = process?.takeIf { !it.isAlive }?.exitValue()
+        return buildString {
+            append("MCP server '${config.name}' closed the connection")
+            if (exit != null) append(" (exited $exit)")
+            if (tail != null) append("\n").append(tail)
+        }
     }
 
     private fun notify(method: String, params: JsonObject) {
@@ -154,6 +197,8 @@ class McpClient(private val config: McpServerConfig) {
             .toMap()
 
     companion object {
+        private const val STDERR_TAIL_LINES = 20
+
         private val ALLOWED_SCHEMA_KEYS = setOf(
             "type", "description", "properties", "required", "items", "enum", "nullable",
         )

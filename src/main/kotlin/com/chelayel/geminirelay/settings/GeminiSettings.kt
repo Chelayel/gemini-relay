@@ -100,6 +100,24 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
         var systemPrompt: String = DEFAULT_SYSTEM_PROMPT
         var commandTimeoutSeconds: Int = 300
 
+        // How long one turn may run: tool rounds before the loop gives up, and
+        // how many history entries are kept in the prompt before trimming.
+        var maxToolRounds: Int = 300
+        var historyWindow: Int = 240
+
+        // Web access for the agent. The provider is "" (none), "brave",
+        // "tavily" or "google"; the key itself lives in PasswordSafe.
+        var webEnabled: Boolean = true
+        var searchProvider: String = ""
+        var searchCx: String = ""
+
+        // Thinking depth, both spellings, each sent only when set. Unset by
+        // default: see [thinkingLevel].
+        var thinkingLevel: String = ""
+        // -1 = leave the field off the request entirely. 0 is meaningful (it
+        // disables thinking on the 2.5 family), so it cannot double as "unset".
+        var thinkingBudget: Int = -1
+
         // Auto-load a project memory file (GEMINI.md / AGENTS.md / CLAUDE.md).
         var loadProjectMemory: Boolean = true
 
@@ -158,8 +176,12 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
         get() = state.gcloudPath.trim()
         set(value) { state.gcloudPath = value.trim() }
 
+    /** The saved prompt, except that an untouched *older* default is upgraded to
+     *  the current one. The default is persisted verbatim, so without this every
+     *  existing install would keep the prompt it was first written with and never
+     *  see an improvement — while a prompt the user actually edited is left alone. */
     var systemPrompt: String
-        get() = state.systemPrompt.ifBlank { DEFAULT_SYSTEM_PROMPT }
+        get() = state.systemPrompt.let { if (it.isBlank() || it.trim() in SUPERSEDED_PROMPTS) DEFAULT_SYSTEM_PROMPT else it }
         set(value) { state.systemPrompt = value }
 
     var commandTimeoutSeconds: Int
@@ -169,6 +191,51 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
     var loadProjectMemory: Boolean
         get() = state.loadProjectMemory
         set(value) { state.loadProjectMemory = value }
+
+    /**
+     * How many tool rounds one turn may take. The loop used to have no cap at
+     * all, which is fine until a job stalls and silently burns the quota; a
+     * migration-sized task legitimately needs hundreds, so the number is here
+     * rather than hard-coded.
+     */
+    var maxToolRounds: Int
+        get() = state.maxToolRounds.coerceIn(1, 5000)
+        set(value) { state.maxToolRounds = value.coerceIn(1, 5000) }
+
+    /** History entries kept in the prompt before trimming (see `AgentSession.trimmed`). */
+    var historyWindow: Int
+        get() = state.historyWindow.coerceIn(20, 5000)
+        set(value) { state.historyWindow = value.coerceIn(20, 5000) }
+
+    /** Whether the agent may reach the network beyond the model endpoint. */
+    var webEnabled: Boolean
+        get() = state.webEnabled
+        set(value) { state.webEnabled = value }
+
+    var searchProvider: String
+        get() = state.searchProvider.trim()
+        set(value) { state.searchProvider = value.trim() }
+
+    /** Google Programmable Search engine id, for the `google` provider only. */
+    var searchCx: String
+        get() = state.searchCx.trim()
+        set(value) { state.searchCx = value.trim() }
+
+    /**
+     * Gemini 3.x takes `thinkingLevel` ("low"/"medium"/"high"); the 2.5 family
+     * takes a `thinkingBudget` in tokens. Both are blank/0 by default and then
+     * absent from the request: an Apigee gateway validates the body against its
+     * own schema and rejects a field it does not know, so an opt-in cannot break
+     * a setup that already works.
+     */
+    var thinkingLevel: String
+        get() = state.thinkingLevel.trim()
+        set(value) { state.thinkingLevel = value.trim() }
+
+    /** Thinking tokens for the 2.5 family; -1 means "don't send the field". */
+    var thinkingBudget: Int
+        get() = state.thinkingBudget.coerceIn(-1, 32_768)
+        set(value) { state.thinkingBudget = value.coerceIn(-1, 32_768) }
 
     val personas: MutableList<Persona> get() = state.personas
     val mcpServers: MutableList<McpServerConfig> get() = state.mcpServers
@@ -182,6 +249,11 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
     var apigeeClientSecret: String
         get() = readSecret(KEY_APIGEE_SECRET)
         set(value) = writeSecret(KEY_APIGEE_SECRET, value)
+
+    /** The search provider's API key — a credential, so PasswordSafe, not XML. */
+    var searchApiKey: String
+        get() = readSecret(KEY_SEARCH)
+        set(value) = writeSecret(KEY_SEARCH, value)
 
     /** True when the active mode has the minimum credentials to attempt a call. */
     fun isConfigured(): Boolean = when (connectionMode) {
@@ -274,8 +346,49 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
 
         private const val KEY_API = "gemini-api-key"
         private const val KEY_APIGEE_SECRET = "apigee-client-secret"
+        private const val KEY_SEARCH = "search-api-key"
 
+        /**
+         * The two paragraphs after the basics are there for a specific failure:
+         * asked to move a project onto a framework release newer than its
+         * training data, the model answered from memory and invented plausible
+         * artifact ids and property names, then hand-edited file after file
+         * until the turn ended with the build broken. Both halves of that are
+         * addressed here — check the world before asserting a version-specific
+         * fact, and drive a large migration from a written plan and the
+         * project's own tooling instead of from memory.
+         */
         val DEFAULT_SYSTEM_PROMPT = """
+            You are Gemini Relay, an agentic coding assistant working inside the user's project.
+            You have tools to read, write, and search files, to run shell commands in the project directory,
+            and to search and read the web.
+            When given a task:
+            1. Use searchFiles and readFile to understand the relevant code before changing anything.
+            2. Make focused edits with writeFile; never claim a change you did not apply through a tool.
+            3. Use runCommand to build, test, and verify your work, and fix failures before finishing.
+
+            Your training data has a cutoff and the ecosystem has moved since. Before you state or rely on anything
+            version-specific — an artifact or module id, a configuration property, a class or method that may have been
+            renamed, moved or removed, the current release of a library, what a major version changed — check it with a
+            tool first. Use webSearch and then fetchUrl to read the project's own release notes or migration guide, and
+            mavenSearch to confirm every dependency coordinate before you write it into a build file. Do this before you
+            answer, not after the user corrects you, and say which page you took a fact from. If webSearch is not
+            available, fetchUrl still is: go straight to the documentation URL you know.
+
+            For a large mechanical change across many files (a framework or language-version upgrade, a package rename,
+            an API sweep), do not start editing file by file. First find out whether the ecosystem already automates it —
+            OpenRewrite recipes, a vendor migration tool, a codemod, an IDE inspection — and prefer running that over
+            hand-editing, then fix what it leaves behind. Write the plan to a file in the repo, keep it updated as you go,
+            and work in batches that each end with a build or test run, so progress survives even if the turn is cut short.
+
+            Be concise in your replies and autonomous in your work.
+        """.trimIndent()
+
+        /** Defaults shipped by earlier releases. A saved prompt matching one of
+         *  these was never edited by the user, so it is replaced on read rather
+         *  than pinning that install to a prompt that predates the web tools. */
+        private val SUPERSEDED_PROMPTS = setOf(
+            """
             You are Gemini Relay, an agentic coding assistant working inside the user's project.
             You have tools to read, write, and search files and to run shell commands in the project directory.
             When given a task:
@@ -283,7 +396,8 @@ class GeminiSettings : PersistentStateComponent<GeminiSettings.State> {
             2. Make focused edits with writeFile; never claim a change you did not apply through a tool.
             3. Use runCommand to build, test, and verify your work, and fix failures before finishing.
             Be concise in your replies and autonomous in your work.
-        """.trimIndent()
+            """.trimIndent(),
+        )
 
         fun getInstance(): GeminiSettings =
             ApplicationManager.getApplication().getService(GeminiSettings::class.java)

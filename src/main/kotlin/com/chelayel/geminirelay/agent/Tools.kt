@@ -9,16 +9,25 @@ import java.io.File
 
 /**
  * The tools the model may call in Agent mode, plus the executor that runs them.
- * Everything is confined to the project [workingDir]; reads/writes that escape
- * it are refused. Mirrors the core tool set of the reference CLI (read, write,
- * list, search, run).
+ * The file and command tools are confined to the project [workingDir]; reads/
+ * writes that escape it are refused. Mirrors the core tool set of the reference
+ * CLI (read, write, list, search, run).
+ *
+ * [web] is composed in rather than wired up separately by the session, so the
+ * whole built-in tool surface is declared, routed and summarized from one place.
  */
-class Tools(private val workingDir: String, private val commandTimeoutSeconds: Int) {
+class Tools(
+    private val workingDir: String,
+    private val commandTimeoutSeconds: Int,
+    private val web: Web? = null,
+) {
 
     private val root = File(workingDir).absoluteFile
 
     /** Function declarations advertised to the model. */
-    fun declarations(): List<FunctionDecl> = listOf(
+    fun declarations(): List<FunctionDecl> = fileDeclarations() + web?.declarations().orEmpty()
+
+    private fun fileDeclarations(): List<FunctionDecl> = listOf(
         FunctionDecl(
             name = "readFile",
             description = "Read the contents of a text file in the project, relative to the project root.",
@@ -63,7 +72,7 @@ class Tools(private val workingDir: String, private val commandTimeoutSeconds: I
     )
 
     /** True when [name] is one of the built-in tools (vs. an MCP tool). */
-    fun handles(name: String): Boolean = name in BUILTIN_NAMES
+    fun handles(name: String): Boolean = name in BUILTIN_NAMES || web?.handles(name) == true
 
     /** Execute one call and return the `response` object to feed back to the model. */
     fun execute(name: String, args: JsonObject): JsonObject = runCatching {
@@ -73,7 +82,7 @@ class Tools(private val workingDir: String, private val commandTimeoutSeconds: I
             "listFiles" -> listFiles(args.optStr("path") ?: ".")
             "searchFiles" -> searchFiles(args.str("pattern"), args.optStr("glob"))
             "runCommand" -> runCommand(args.str("command"))
-            else -> error("Unknown tool: $name")
+            else -> web?.takeIf { it.handles(name) }?.execute(name, args) ?: error("Unknown tool: $name")
         }
     }.getOrElse { ok(error = it.message ?: "Tool '$name' failed.") }
 
@@ -83,7 +92,7 @@ class Tools(private val workingDir: String, private val commandTimeoutSeconds: I
         "listFiles" -> args.optStr("path") ?: "."
         "searchFiles" -> args.optStr("pattern").orEmpty()
         "runCommand" -> args.optStr("command").orEmpty()
-        else -> ""
+        else -> web?.takeIf { it.handles(name) }?.summarize(name, args).orEmpty()
     }.lineSequence().firstOrNull()?.take(160).orEmpty()
 
     // ---- tool implementations ------------------------------------------------

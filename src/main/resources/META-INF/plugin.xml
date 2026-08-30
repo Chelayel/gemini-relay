@@ -16,6 +16,9 @@
             <li><b>Agent &amp; Ask modes</b> — let Gemini edit and run commands, or keep it strictly read-only</li>
             <li><b>Editor-aware</b> — auto-attaches your current selection, so "explain/refactor this" just works</li>
             <li><b>Attach files &amp; images</b> — pick a file, or paste a screenshot straight into the prompt (Gemini is multimodal)</li>
+            <li><b>Searches the web before it answers</b> — release notes, migration guides and real
+            Maven Central coordinates, instead of a version-specific guess from training data</li>
+            <li><b>MCP tool servers</b> — bring your own tools over the Model Context Protocol</li>
             <li><b>Three connection modes</b> — Gemini API key, Vertex AI, or Vertex via Apigee</li>
             <li><b>Configurable everything</b> — connection parameters in Settings; secrets in the IDE password safe</li>
         </ul>
@@ -30,6 +33,18 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.2.0</b> — The agent can now check its facts. Three new tools:
+        <code>webSearch</code>, <code>fetchUrl</code> (any page or raw file, as readable text) and
+        <code>mavenSearch</code> (real coordinates and published versions from Maven Central).
+        This closes the gap behind the most common wrong answer — asked about a framework release
+        newer than its training data, the model used to invent plausible artifact ids and
+        configuration properties. Search needs an API key from Brave, Tavily or Google
+        Programmable Search, set under <b>Settings → Tools → Gemini Relay → Web access</b>;
+        reading a URL and looking up Maven Central need no key and work out of the box.
+        Also in this release: a configurable cap on tool rounds per turn, a history trim that no
+        longer drops the original request (or breaks a request by orphaning a tool result), an
+        optional thinking level or budget, and MCP servers that fail to start now say so in the
+        transcript instead of silently contributing nothing.</p>
         <p><b>1.1.1</b> — Cleared the last plugin-verifier warning. The 1.0.8 switch to the
         two-argument <code>CredentialAttributes</code> constructor still compiled down to the
         deprecated one, because every Kotlin call site goes through the same defaults bridge;

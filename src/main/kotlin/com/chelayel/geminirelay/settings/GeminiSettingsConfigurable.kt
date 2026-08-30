@@ -66,6 +66,27 @@ class GeminiSettingsConfigurable : Configurable {
 
     private val systemPromptArea = JBTextArea(6, 50).apply { lineWrap = true; wrapStyleWord = true }
     private val commandTimeoutSpinner = JSpinner(SpinnerNumberModel(300, 300, 3600, 1))
+    private val maxRoundsSpinner = JSpinner(SpinnerNumberModel(300, 1, 5000, 10))
+    private val historyWindowSpinner = JSpinner(SpinnerNumberModel(240, 20, 5000, 10))
+
+    private val thinkingCombo = JComboBox(DefaultComboBoxModel(THINKING_LEVELS.toTypedArray())).apply {
+        renderer = textListCellRenderer<String?> { level -> level?.ifBlank { "Default (send nothing)" }.orEmpty() }
+    }
+    private val thinkingBudgetSpinner = JSpinner(SpinnerNumberModel(-1, -1, 32_768, 128))
+
+    private val webEnabledCheck = JBCheckBox("Let the agent search and read the web")
+    private val searchProviderCombo =
+        JComboBox(DefaultComboBoxModel(com.chelayel.geminirelay.agent.Web.Provider.entries.toTypedArray()))
+    private val searchKeyField = JBPasswordField()
+    private val searchCxField = JBTextField()
+
+    /** Unlike the Apigee agent list this only degrades a feature rather than
+     *  breaking the connection, so it warns instead of refusing to save. */
+    private val searchWarning = JBLabel().apply {
+        foreground = JBColor.RED
+        font = JBUI.Fonts.smallFont()
+        isVisible = false
+    }
 
     private val loadMemoryCheck = JBCheckBox("Load project memory (GEMINI.md / AGENTS.md / CLAUDE.md) as context")
 
@@ -91,6 +112,10 @@ class GeminiSettingsConfigurable : Configurable {
             override fun removeUpdate(e: javax.swing.event.DocumentEvent) = updateEnablement()
             override fun changedUpdate(e: javax.swing.event.DocumentEvent) = updateEnablement()
         })
+        webEnabledCheck.addActionListener { updateWebEnablement() }
+        searchProviderCombo.addActionListener { updateWebEnablement() }
+        onEdit(searchKeyField) { updateWebEnablement() }
+        onEdit(searchCxField) { updateWebEnablement() }
 
         val promptScroll = JScrollPane(systemPromptArea).apply {
             preferredSize = Dimension(JBUI.scale(480), JBUI.scale(120))
@@ -126,7 +151,25 @@ class GeminiSettingsConfigurable : Configurable {
             .addComponent(sectionLabel("Agent"))
             .addLabeledComponent("System prompt:", promptScroll)
             .addLabeledComponent("Command timeout (s):", commandTimeoutSpinner)
+            .addLabeledComponent("Max tool rounds per turn:", maxRoundsSpinner)
+            .addLabeledComponent("History window (turns):", historyWindowSpinner)
+            .addComponent(hint("A migration-sized task legitimately runs for hundreds of rounds; a question needs a handful."))
             .addComponent(loadMemoryCheck)
+            .addSeparator()
+            .addComponent(sectionLabel("Thinking"))
+            .addLabeledComponent("Thinking level:", thinkingCombo)
+            .addLabeledComponent("Thinking budget (tokens):", thinkingBudgetSpinner)
+            .addComponent(hint("Gemini 3.x takes the level, the 2.5 family the budget — set one, not both. Budget -1 = send nothing, 0 = no thinking."))
+            .addComponent(hint("Both are off by default: a gateway that validates the body rejects a field its schema doesn't know."))
+            .addSeparator()
+            .addComponent(sectionLabel("Web access"))
+            .addComponent(webEnabledCheck)
+            .addLabeledComponent("Search provider:", searchProviderCombo)
+            .addLabeledComponent("Search API key:", searchKeyField)
+            .addLabeledComponent("Google engine id (cx):", searchCxField)
+            .addComponent(hint("Reading a URL and looking up Maven Central need no key. Search does — pick a provider and paste its key."))
+            .addComponent(hint("Without one, webSearch is not offered to the model at all, rather than failing every call."))
+            .addComponent(searchWarning)
             .addSeparator()
             .addComponent(sectionLabel("Personas"))
             .addComponent(hint("Named system-prompt presets — pick one from the composer's “+” menu (“Run as persona”)."))
@@ -164,6 +207,15 @@ class GeminiSettingsConfigurable : Configurable {
     private fun <T> editDialog(dialog: ItemDialog<T>): T? =
         if (dialog.showAndGet()) dialog.result() else null
 
+    /** Run [block] on every change to a text field's content. */
+    private fun onEdit(field: javax.swing.text.JTextComponent, block: () -> Unit) {
+        field.document.addDocumentListener(object : javax.swing.event.DocumentListener {
+            override fun insertUpdate(e: javax.swing.event.DocumentEvent) = block()
+            override fun removeUpdate(e: javax.swing.event.DocumentEvent) = block()
+            override fun changedUpdate(e: javax.swing.event.DocumentEvent) = block()
+        })
+    }
+
     private fun sectionLabel(text: String): JComponent =
         JBLabel(text).apply {
             font = font.deriveFont(font.style or java.awt.Font.BOLD)
@@ -195,6 +247,7 @@ class GeminiSettingsConfigurable : Configurable {
         apigeeAgentsArea.isEnabled = apigee
         apigeeAgentsWarning.isVisible = apigee && parseAgents(apigeeAgentsArea.text).isEmpty()
 
+        updateWebEnablement()
         syncModelChoices(mode)
     }
 
@@ -214,6 +267,25 @@ class GeminiSettingsConfigurable : Configurable {
         if (modelText() != current) modelCombo.selectedItem = current
     }
 
+    /** Show only the search fields the chosen provider actually uses. */
+    private fun updateWebEnablement() {
+        val web = webEnabledCheck.isSelected
+        val provider = searchProvider()
+        searchProviderCombo.isEnabled = web
+        searchKeyField.isEnabled = web && provider != com.chelayel.geminirelay.agent.Web.Provider.NONE
+        searchCxField.isEnabled = web && provider == com.chelayel.geminirelay.agent.Web.Provider.GOOGLE
+
+        val missing = when {
+            !web || provider == com.chelayel.geminirelay.agent.Web.Provider.NONE -> null
+            searchKeyField.password.isEmpty() -> "an API key"
+            provider == com.chelayel.geminirelay.agent.Web.Provider.GOOGLE && searchCxField.text.isBlank() ->
+                "a search engine id (cx)"
+            else -> null
+        }
+        searchWarning.text = missing?.let { "⚠ ${provider.label} needs $it — until then the model is not offered webSearch." }.orEmpty()
+        searchWarning.isVisible = missing != null
+    }
+
     private fun parseAgents(text: String): List<String> =
         text.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }
 
@@ -231,6 +303,14 @@ class GeminiSettingsConfigurable : Configurable {
             apigeeAgentsArea.text != settings.apigeeAgents ||
             systemPromptArea.text != settings.systemPrompt ||
             (commandTimeoutSpinner.value as Int) != settings.commandTimeoutSeconds ||
+            (maxRoundsSpinner.value as Int) != settings.maxToolRounds ||
+            (historyWindowSpinner.value as Int) != settings.historyWindow ||
+            thinkingLevelText() != settings.thinkingLevel ||
+            (thinkingBudgetSpinner.value as Int) != settings.thinkingBudget ||
+            webEnabledCheck.isSelected != settings.webEnabled ||
+            searchProvider().id != settings.searchProvider ||
+            String(searchKeyField.password) != settings.searchApiKey ||
+            searchCxField.text.trim() != settings.searchCx ||
             loadMemoryCheck.isSelected != settings.loadProjectMemory ||
             !personasEqual(items(personaModel), settings.personas) ||
             !mcpEqual(items(mcpModel), settings.mcpServers)
@@ -253,6 +333,14 @@ class GeminiSettingsConfigurable : Configurable {
         settings.apigeeAgents = apigeeAgentsArea.text
         settings.systemPrompt = systemPromptArea.text
         settings.commandTimeoutSeconds = commandTimeoutSpinner.value as Int
+        settings.maxToolRounds = maxRoundsSpinner.value as Int
+        settings.historyWindow = historyWindowSpinner.value as Int
+        settings.thinkingLevel = thinkingLevelText()
+        settings.thinkingBudget = thinkingBudgetSpinner.value as Int
+        settings.webEnabled = webEnabledCheck.isSelected
+        settings.searchProvider = searchProvider().id
+        settings.searchApiKey = String(searchKeyField.password)
+        settings.searchCx = searchCxField.text
         settings.loadProjectMemory = loadMemoryCheck.isSelected
         settings.personas.apply { clear(); addAll(items(personaModel)) }
         settings.mcpServers.apply { clear(); addAll(items(mcpModel)) }
@@ -276,6 +364,14 @@ class GeminiSettingsConfigurable : Configurable {
         systemPromptArea.text = settings.systemPrompt
         systemPromptArea.caretPosition = 0
         commandTimeoutSpinner.value = settings.commandTimeoutSeconds
+        maxRoundsSpinner.value = settings.maxToolRounds
+        historyWindowSpinner.value = settings.historyWindow
+        thinkingCombo.selectedItem = settings.thinkingLevel.takeIf { it in THINKING_LEVELS } ?: ""
+        thinkingBudgetSpinner.value = settings.thinkingBudget
+        webEnabledCheck.isSelected = settings.webEnabled
+        searchProviderCombo.selectedItem = com.chelayel.geminirelay.agent.Web.Provider.from(settings.searchProvider)
+        searchKeyField.text = settings.searchApiKey
+        searchCxField.text = settings.searchCx
         loadMemoryCheck.isSelected = settings.loadProjectMemory
         personaModel.replaceAll(settings.personas.map { Persona(it.name, it.prompt) })
         mcpModel.replaceAll(settings.mcpServers.map { McpServerConfig(it.name, it.command, it.args, it.env, it.enabled) })
@@ -283,6 +379,12 @@ class GeminiSettingsConfigurable : Configurable {
     }
 
     private fun modelText(): String = (modelCombo.editor.item?.toString() ?: "").trim()
+
+    private fun thinkingLevelText(): String = (thinkingCombo.selectedItem as? String).orEmpty()
+
+    private fun searchProvider(): com.chelayel.geminirelay.agent.Web.Provider =
+        searchProviderCombo.selectedItem as? com.chelayel.geminirelay.agent.Web.Provider
+            ?: com.chelayel.geminirelay.agent.Web.Provider.NONE
 
     private fun comboModel(items: List<String>): ComboBoxModel<String> =
         DefaultComboBoxModel(items.toTypedArray())
@@ -297,6 +399,11 @@ class GeminiSettingsConfigurable : Configurable {
         a.size == b.size && a.zip(b).all { (x, y) ->
             x.name == y.name && x.command == y.command && x.args == y.args && x.env == y.env && x.enabled == y.enabled
         }
+
+    private companion object {
+        /** "" = send no `thinkingLevel` at all; the rest are Gemini 3.x's values. */
+        val THINKING_LEVELS = listOf("", "low", "medium", "high")
+    }
 
     // ---- item editor dialogs -------------------------------------------------
 

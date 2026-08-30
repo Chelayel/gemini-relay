@@ -37,6 +37,8 @@ class AgentSession(
     private val history = mutableListOf<Content>()
     // Tools the user approved "for this chat" (skip future prompts).
     private val approvedTools = mutableSetOf<String>()
+    // MCP startup failures already shown, so each is reported once per chat.
+    private val reportedMcpErrors = mutableSetOf<String>()
 
     @Volatile private var client: GeminiClient? = null
     @Volatile private var cancelled = false
@@ -56,6 +58,7 @@ class AgentSession(
         cancel()
         history.clear()
         approvedTools.clear()
+        reportedMcpErrors.clear()
     }
 
     fun cancel() {
@@ -104,11 +107,25 @@ class AgentSession(
         confirm: (String, String) -> PermissionDecision,
         listener: Listener,
     ) {
-        val tools = Tools(workingDir, settings.commandTimeoutSeconds)
+        val tools = Tools(workingDir, settings.commandTimeoutSeconds, Web(settings))
         // Ask mode is strictly read-only: no tools at all.
         val declarations = if (askMode) emptyList() else tools.declarations() + mcp.declarations()
+        // A server that failed to start used to contribute no tools and no
+        // explanation, which looks from the transcript like the model ignoring
+        // a tool it was given. Say so — but once per chat, not once per turn:
+        // the manager caches its tool list, so the same failure is still on
+        // record every time round and repeating it would bury the transcript.
+        if (!askMode) {
+            mcp.lastErrors().filter { reportedMcpErrors.add(it) }
+                .forEach { e -> edt { listener.onError("MCP server unavailable — $e") } }
+        }
 
+        var rounds = 0
         while (!cancelled) {
+            if (++rounds > settings.maxToolRounds) {
+                edt { listener.onError(roundCapMessage()) }
+                return
+            }
             val c = GeminiClient(settings)
             client = c
 
@@ -160,8 +177,10 @@ class AgentSession(
 
     /**
      * Whether a tool call must be confirmed under [mode]. Read-only built-ins
-     * (readFile/listFiles/searchFiles) never prompt; writeFile prompts only in
-     * ASK; runCommand and any MCP tool prompt unless BYPASS.
+     * (readFile/listFiles/searchFiles, and the web tools, which only read)
+     * never prompt; writeFile prompts only in ASK; runCommand and any MCP tool
+     * prompt unless BYPASS — an MCP tool is somebody else's code and is not
+     * confined to the project directory.
      */
     private fun needsConfirm(mode: PermissionMode, name: String, builtin: Boolean): Boolean {
         if (mode == PermissionMode.BYPASS) return false
@@ -173,9 +192,30 @@ class AgentSession(
         }
     }
 
-    /** Bound the prompt size by keeping only the most recent turns. */
-    private fun trimmed(): List<Content> =
-        if (history.size <= MEMORY_WINDOW) history.toList() else history.takeLast(MEMORY_WINDOW)
+    /**
+     * Bound the prompt size by keeping the most recent turns — but not with a
+     * plain `takeLast`, which was wrong in two ways. It could start the window
+     * on `functionResponse` parts whose `functionCall` had just been cut away,
+     * and Gemini rejects that outright (HTTP 400); and it dropped the very
+     * first message — the task itself — so a job that ran long enough to trim
+     * forgot what it had been asked to do. So the window is advanced past any
+     * orphaned results, and the opening request is always kept, with a note in
+     * place of the middle.
+     */
+    private fun trimmed(): List<Content> {
+        val window = settings.historyWindow
+        if (history.size <= window) return history.toList()
+        var start = history.size - window
+        while (start < history.size && history[start].parts.any { it is Part.FunctionResponse }) start++
+        if (start >= history.size) return history.takeLast(1)
+        val tail = history.subList(start, history.size).toList()
+        if (start == 0) return tail
+        return listOf(history.first(), Content("user", listOf(Part.Text(TRIM_NOTICE)))) + tail
+    }
+
+    private fun roundCapMessage(): String =
+        "Stopped after ${settings.maxToolRounds} tool rounds without a final answer. The work so far is applied; " +
+            "send “continue” to carry on, or raise the limit in Settings → Tools → Gemini Relay."
 
     private fun edt(block: () -> Unit) = ApplicationManager.getApplication().invokeLater(block)
 
@@ -192,6 +232,8 @@ class AgentSession(
     }
 
     companion object {
-        private const val MEMORY_WINDOW = 100
+        private const val TRIM_NOTICE =
+            "[Earlier steps of this conversation were dropped to stay within the context window. " +
+                "The original request is above; continue from the most recent tool results below.]"
     }
 }

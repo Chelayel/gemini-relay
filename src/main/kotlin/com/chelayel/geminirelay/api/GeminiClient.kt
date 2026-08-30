@@ -241,7 +241,29 @@ class GeminiClient(private val settings: GeminiSettings) {
             root.add("tools", JsonArray().apply { add(toolObj) })
         }
 
+        thinkingConfig()?.let { thinking ->
+            root.add("generationConfig", JsonObject().apply { add("thinkingConfig", thinking) })
+        }
+
         return root
+    }
+
+    /**
+     * `thinkingConfig`, or null when the user has configured neither spelling.
+     * Gemini 3.x takes `thinkingLevel`, the 2.5 family a `thinkingBudget` in
+     * tokens, and sending the wrong one is a 400 on every turn — which is why
+     * nothing goes on the wire unless it was asked for. An Apigee gateway
+     * publishes its own model ids, so there is no way to infer the right field
+     * from the model name here.
+     */
+    private fun thinkingConfig(): JsonObject? {
+        val level = settings.thinkingLevel
+        val budget = settings.thinkingBudget
+        if (level.isBlank() && budget < 0) return null
+        return JsonObject().apply {
+            if (level.isNotBlank()) addProperty("thinkingLevel", level.uppercase())
+            if (budget >= 0) addProperty("thinkingBudget", budget)
+        }
     }
 
     /** Drop empty/invalid parts so every content sent to Gemini has at least one usable part. */
