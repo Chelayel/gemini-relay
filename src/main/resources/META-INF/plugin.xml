@@ -44,7 +44,10 @@
         Also in this release: a configurable cap on tool rounds per turn, a history trim that no
         longer drops the original request (or breaks a request by orphaning a tool result), an
         optional thinking level or budget, and MCP servers that fail to start now say so in the
-        transcript instead of silently contributing nothing.</p>
+        transcript instead of silently contributing nothing. Both new pieces can be checked
+        without spending a turn: <b>Test web access</b> calls each web tool live with the values
+        you've just typed, and <b>Test</b> on an MCP server starts it and lists the tools it
+        advertises (with its stderr, when it dies on startup).</p>
         <p><b>1.1.1</b> — Cleared the last plugin-verifier warning. The 1.0.8 switch to the
         two-argument <code>CredentialAttributes</code> constructor still compiled down to the
         deprecated one, because every Kotlin call site goes through the same defaults bridge;

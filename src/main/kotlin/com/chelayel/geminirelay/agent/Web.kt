@@ -31,7 +31,23 @@ import java.nio.charset.StandardCharsets
  * All of this runs on the caller's thread, which is the agent loop's pooled
  * thread — never the EDT.
  */
-class Web(private val settings: GeminiSettings) {
+class Web(private val settings: Settings) {
+
+    /**
+     * Exactly what [Web] needs from the configuration, and nothing else.
+     *
+     * [GeminiSettings] is an application service whose key lives in PasswordSafe,
+     * so touching it requires a running IDE. Depending on this instead means the
+     * whole class can be exercised from a plain unit test with a fake — which is
+     * the only way the HTML reader, the provider rules and the redirect handling
+     * get covered at all, since this project has no IntelliJ test fixture.
+     */
+    interface Settings {
+        val webEnabled: Boolean
+        val searchProvider: String
+        val searchApiKey: String
+        val searchCx: String
+    }
 
     /**
      * Which search API [webSearch] talks to. Fetching a URL needs no provider,
@@ -169,6 +185,41 @@ class Web(private val settings: GeminiSettings) {
             else -> error("Unknown web tool: $name")
         }
     }.getOrElse { err(it.message ?: "Web tool '$name' failed.") }
+
+    /**
+     * Run each web tool once, live, and report what happened — the plugin's
+     * answer to AI Relay's `airelay web` subcommand.
+     *
+     * Worth having because every way this can be misconfigured (a key with the
+     * wrong provider, a proxy that blocks outbound HTTP, a gateway that never
+     * sees these calls at all) otherwise shows up only as an agent that quietly
+     * stops citing sources, several minutes into a task. This says so in a
+     * second, before a turn is spent.
+     *
+     * Runs on the caller's thread and touches the network: never the EDT.
+     */
+    fun diagnose(): String {
+        if (!enabled) return "Web access is switched off — the model is given no web tools."
+        val lines = mutableListOf<String>()
+        lines += probe("fetchUrl", "example.com") { fetchUrl("https://example.com", 2_000) }
+        lines += probe("mavenSearch", "org.springframework.boot:spring-boot-starter-web") {
+            mavenSearch("org.springframework.boot", "spring-boot-starter-web", null, false, 3)
+        }
+        lines += searchUnavailable()
+            ?.let { "— webSearch is not offered to the model: $it" }
+            ?: probe("webSearch", provider.label) { webSearch("spring boot release notes", 3) }
+        return lines.joinToString("\n")
+    }
+
+    private fun probe(tool: String, what: String, call: () -> JsonObject): String {
+        val started = System.currentTimeMillis()
+        val out = runCatching(call).getOrElse { err(it.message ?: it::class.simpleName ?: "failed") }
+        val ms = System.currentTimeMillis() - started
+        out.get("error")?.let { return "✖ $tool ($what): ${it.asString}" }
+        val text = out.get("result")?.asString.orEmpty()
+        val first = text.lineSequence().firstOrNull { it.isNotBlank() }?.trim()?.take(90).orEmpty()
+        return "✔ $tool ($what) — ${text.length} chars in $ms ms\n    $first"
+    }
 
     // ---- Maven Central -------------------------------------------------------
 
@@ -470,5 +521,15 @@ class Web(private val settings: GeminiSettings) {
         )
 
         val TOOL_NAMES = setOf("webSearch", "fetchUrl", "mavenSearch")
+
+        /** The live configuration, read through [GeminiSettings]. */
+        fun from(settings: GeminiSettings): Web = Web(
+            object : Settings {
+                override val webEnabled get() = settings.webEnabled
+                override val searchProvider get() = settings.searchProvider
+                override val searchApiKey get() = settings.searchApiKey
+                override val searchCx get() = settings.searchCx
+            },
+        )
     }
 }

@@ -107,7 +107,7 @@ class AgentSession(
         confirm: (String, String) -> PermissionDecision,
         listener: Listener,
     ) {
-        val tools = Tools(workingDir, settings.commandTimeoutSeconds, Web(settings))
+        val tools = Tools(workingDir, settings.commandTimeoutSeconds, Web.from(settings))
         // Ask mode is strictly read-only: no tools at all.
         val declarations = if (askMode) emptyList() else tools.declarations() + mcp.declarations()
         // A server that failed to start used to contribute no tools and no

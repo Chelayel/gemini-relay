@@ -9,6 +9,12 @@ which it mirrors in look and feel.
 
 - JDK 21, Gradle 9, IntelliJ Platform Gradle Plugin 2.x.
 - `./gradlew compileKotlin` — fast compile check.
+- `./gradlew test` — plain JUnit, **no IntelliJ test fixture**: `agent/Web`
+  against a throwaway local HTTP server, and `mcp/McpClient`'s schema filter and
+  name mangler. Both are reachable without an IDE because `Web` takes its own
+  `Web.Settings` (not the `GeminiSettings` service, whose key lives in
+  PasswordSafe) and the MCP pieces under test are companion functions. Keep it
+  that way — a fixture would trade a one-second run for booting a test IDE.
 - `./gradlew runIde` — sandbox IDE with the plugin loaded.
 - `./gradlew buildPlugin` — installable zip in `build/distributions/`.
 - Bump `version` in `build.gradle.kts` before packaging.
@@ -93,9 +99,16 @@ which it mirrors in look and feel.
 - A new capability is off unless it can work. `webSearch` is not declared
   without a provider, and no thinking field is sent unless one was chosen —
   neither is an error, and neither can break a setup that already works.
-- There is no test source set (no IntelliJ test fixture). `agent/Web` and the
-  MCP client are line-for-line the same logic as AI Relay's, which does have
-  tests for them — change them there first, then port.
+- `agent/Web` and the MCP client are the same logic as AI Relay's; both projects
+  test them, so a change belongs in both.
+- Anything the user configures but can't see working should have a live check.
+  The settings form's **Test web access** button and the MCP list's **Test**
+  action are the in-IDE equivalents of `airelay web` / `airelay mcp`: they run
+  the real thing against the values *currently in the form*, before Apply, so a
+  misconfiguration surfaces in a second rather than as an agent that quietly
+  stops citing sources ten minutes into a task. Both go through
+  `runProcessWithProgressSynchronously` — network and child processes never on
+  the EDT.
 
 ## Status
 

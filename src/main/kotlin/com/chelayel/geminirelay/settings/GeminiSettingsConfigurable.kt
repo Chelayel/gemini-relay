@@ -1,8 +1,17 @@
 package com.chelayel.geminirelay.settings
 
+import com.chelayel.geminirelay.agent.Web
+import com.chelayel.geminirelay.mcp.McpClient
+import com.intellij.icons.AllIcons
+import com.intellij.openapi.actionSystem.ActionUpdateThread
+import com.intellij.openapi.actionSystem.AnAction
+import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.options.Configurable
 import com.intellij.openapi.options.ConfigurationException
+import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.progress.ProgressManager
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.ui.Messages
 import com.intellij.ui.JBColor
 import com.intellij.ui.CollectionListModel
 import com.intellij.ui.dsl.listCellRenderer.textListCellRenderer
@@ -19,6 +28,7 @@ import java.awt.BorderLayout
 import java.awt.Dimension
 import javax.swing.ComboBoxModel
 import javax.swing.DefaultComboBoxModel
+import javax.swing.JButton
 import javax.swing.JComboBox
 import javax.swing.JComponent
 import javax.swing.JPanel
@@ -75,10 +85,16 @@ class GeminiSettingsConfigurable : Configurable {
     private val thinkingBudgetSpinner = JSpinner(SpinnerNumberModel(-1, -1, 32_768, 128))
 
     private val webEnabledCheck = JBCheckBox("Let the agent search and read the web")
-    private val searchProviderCombo =
-        JComboBox(DefaultComboBoxModel(com.chelayel.geminirelay.agent.Web.Provider.entries.toTypedArray()))
+    private val searchProviderCombo = JComboBox(DefaultComboBoxModel(Web.Provider.entries.toTypedArray()))
     private val searchKeyField = JBPasswordField()
     private val searchCxField = JBTextField()
+
+    /** Calls each web tool for real, using what's typed in the form right now. */
+    private val webTestButton = JButton("Test web access")
+    private val webTestResult = JBLabel().apply {
+        font = JBUI.Fonts.smallFont()
+        isVisible = false
+    }
 
     /** Unlike the Apigee agent list this only degrades a feature rather than
      *  breaking the connection, so it warns instead of refusing to save. */
@@ -116,6 +132,7 @@ class GeminiSettingsConfigurable : Configurable {
         searchProviderCombo.addActionListener { updateWebEnablement() }
         onEdit(searchKeyField) { updateWebEnablement() }
         onEdit(searchCxField) { updateWebEnablement() }
+        webTestButton.addActionListener { testWebAccess() }
 
         val promptScroll = JScrollPane(systemPromptArea).apply {
             preferredSize = Dimension(JBUI.scale(480), JBUI.scale(120))
@@ -170,6 +187,9 @@ class GeminiSettingsConfigurable : Configurable {
             .addComponent(hint("Reading a URL and looking up Maven Central need no key. Search does — pick a provider and paste its key."))
             .addComponent(hint("Without one, webSearch is not offered to the model at all, rather than failing every call."))
             .addComponent(searchWarning)
+            .addComponent(webTestButton)
+            .addComponent(hint("Calls each web tool once, live, with the values above — no need to save first."))
+            .addComponent(webTestResult)
             .addSeparator()
             .addComponent(sectionLabel("Personas"))
             .addComponent(hint("Named system-prompt presets — pick one from the composer's “+” menu (“Run as persona”)."))
@@ -178,7 +198,10 @@ class GeminiSettingsConfigurable : Configurable {
             .addSeparator()
             .addComponent(sectionLabel("MCP tool servers"))
             .addComponent(hint("External Model Context Protocol servers (stdio). Their tools are added to Agent mode."))
-            .addComponent(listPanel(mcpList, { editDialog(McpDialog(null)) }, { editDialog(McpDialog(it)) }))
+            .addComponent(
+                listPanel(mcpList, { editDialog(McpDialog(null)) }, { editDialog(McpDialog(it)) }, testMcpAction()),
+            )
+            .addComponent(hint("“Test” starts the selected server and lists the tools it advertises — the quickest way to tell a wrong command from a server that starts and offers nothing."))
             .addComponentFillVertically(JPanel(), 0)
             .panel
 
@@ -186,8 +209,13 @@ class GeminiSettingsConfigurable : Configurable {
         return form
     }
 
-    /** A list with an add/edit/remove toolbar. */
-    private fun <T> listPanel(list: JBList<T>, onAdd: () -> T?, onEdit: (T) -> T?): JComponent {
+    /** A list with an add/edit/remove toolbar, plus any [extra] toolbar actions. */
+    private fun <T> listPanel(
+        list: JBList<T>,
+        onAdd: () -> T?,
+        onEdit: (T) -> T?,
+        vararg extra: AnAction,
+    ): JComponent {
         @Suppress("UNCHECKED_CAST")
         val model = list.model as CollectionListModel<T>
         val decorated = ToolbarDecorator.createDecorator(list)
@@ -197,6 +225,7 @@ class GeminiSettingsConfigurable : Configurable {
                 if (idx >= 0) onEdit(model.getElementAt(idx))?.let { model.setElementAt(it, idx) }
             }
             .setRemoveAction { list.selectedIndex.takeIf { it >= 0 }?.let { model.remove(it) } }
+            .also { decorator -> extra.forEach { decorator.addExtraAction(it) } }
             .createPanel()
         return JPanel(BorderLayout()).apply {
             preferredSize = Dimension(JBUI.scale(480), JBUI.scale(110))
@@ -272,13 +301,13 @@ class GeminiSettingsConfigurable : Configurable {
         val web = webEnabledCheck.isSelected
         val provider = searchProvider()
         searchProviderCombo.isEnabled = web
-        searchKeyField.isEnabled = web && provider != com.chelayel.geminirelay.agent.Web.Provider.NONE
-        searchCxField.isEnabled = web && provider == com.chelayel.geminirelay.agent.Web.Provider.GOOGLE
+        searchKeyField.isEnabled = web && provider != Web.Provider.NONE
+        searchCxField.isEnabled = web && provider == Web.Provider.GOOGLE
 
         val missing = when {
-            !web || provider == com.chelayel.geminirelay.agent.Web.Provider.NONE -> null
+            !web || provider == Web.Provider.NONE -> null
             searchKeyField.password.isEmpty() -> "an API key"
-            provider == com.chelayel.geminirelay.agent.Web.Provider.GOOGLE && searchCxField.text.isBlank() ->
+            provider == Web.Provider.GOOGLE && searchCxField.text.isBlank() ->
                 "a search engine id (cx)"
             else -> null
         }
@@ -288,6 +317,100 @@ class GeminiSettingsConfigurable : Configurable {
 
     private fun parseAgents(text: String): List<String> =
         text.split('\n', ',').map { it.trim() }.filter { it.isNotEmpty() }
+
+    // ---- live checks ---------------------------------------------------------
+    //
+    // Both of these run the real thing against the values currently in the form,
+    // so a setting can be proved before it is saved and long before a turn is
+    // spent on it. Everything they do is network or child-process work, so it
+    // goes through a modal progress — the block runs on a pooled thread and the
+    // EDT only paints.
+
+    private fun testWebAccess() {
+        val web = Web(formWebSettings())
+        val report = runWithProgress("Testing Web Access") { web.diagnose() } ?: return
+        webTestResult.text = asHtml(report)
+        webTestResult.isVisible = true
+    }
+
+    /** What's typed in the form right now, not what was last saved. */
+    private fun formWebSettings(): Web.Settings = object : Web.Settings {
+        override val webEnabled = webEnabledCheck.isSelected
+        override val searchProvider = searchProvider().id
+        override val searchApiKey = String(searchKeyField.password)
+        override val searchCx = searchCxField.text.trim()
+    }
+
+    private fun testMcpAction(): AnAction =
+        object : AnAction("Test", "Start the selected server and list its tools", AllIcons.Actions.Execute) {
+            override fun getActionUpdateThread() = ActionUpdateThread.EDT
+            override fun update(e: AnActionEvent) {
+                e.presentation.isEnabled = mcpList.selectedIndex >= 0
+            }
+            override fun actionPerformed(e: AnActionEvent) {
+                val config = mcpList.selectedValue ?: return
+                val probe = runWithProgress("Starting “${config.name}”") { probeMcp(config) } ?: return
+                val title = "MCP Server: ${config.name}"
+                if (probe.ok) Messages.showInfoMessage(probe.text, title)
+                else Messages.showErrorDialog(probe.text, title)
+            }
+        }
+
+    private class Probe(val ok: Boolean, val text: String)
+
+    /** Start one server, list its tools, and always shut it down again. */
+    private fun probeMcp(config: McpServerConfig): Probe {
+        val client = McpClient(config)
+        return try {
+            val tools = client.listTools()
+            Probe(
+                ok = tools.isNotEmpty(),
+                text = if (tools.isEmpty()) {
+                    "The server started and handshook, but advertises no tools."
+                } else {
+                    "The server started and advertises ${tools.size} tool(s):\n\n" +
+                        tools.joinToString("\n") { tool ->
+                            val desc = tool.description.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().take(90)
+                            "• ${tool.name}" + if (desc.isBlank()) "" else " — $desc"
+                        }
+                },
+            )
+        } catch (e: Exception) {
+            // A server that dies on startup explains itself only on stderr, and
+            // the client keeps the tail for exactly this.
+            val message = e.message.orEmpty().ifBlank { e::class.simpleName.orEmpty() }
+            val tail = client.stderrTail().takeIf { it.isNotBlank() && it !in message }
+            Probe(false, message + tail?.let { "\n\nServer stderr:\n$it" }.orEmpty())
+        } finally {
+            client.close()
+        }
+    }
+
+    /**
+     * Run [block] off the EDT behind a cancellable modal progress. Returns null
+     * if the user cancelled, so callers can simply drop the result.
+     */
+    private fun <T> runWithProgress(title: String, block: () -> T): T? = try {
+        ProgressManager.getInstance().runProcessWithProgressSynchronously<T, Exception>(
+            block, "$title…", true, null,
+        )
+    } catch (_: ProcessCanceledException) {
+        null
+    } catch (e: Exception) {
+        Messages.showErrorDialog(e.message ?: e::class.simpleName ?: "Failed.", title)
+        null
+    }
+
+    /** JBLabel renders one line unless it's told otherwise. */
+    private fun asHtml(text: String): String = text.trim().lines().joinToString(
+        separator = "<br>",
+        prefix = "<html>",
+        postfix = "</html>",
+    ) { line ->
+        val escaped = line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+        val indent = escaped.takeWhile { it == ' ' }.length
+        "&nbsp;".repeat(indent) + escaped.drop(indent)
+    }
 
     override fun isModified(): Boolean =
         (modeCombo.selectedItem as ConnectionMode) != settings.connectionMode ||
@@ -369,7 +492,7 @@ class GeminiSettingsConfigurable : Configurable {
         thinkingCombo.selectedItem = settings.thinkingLevel.takeIf { it in THINKING_LEVELS } ?: ""
         thinkingBudgetSpinner.value = settings.thinkingBudget
         webEnabledCheck.isSelected = settings.webEnabled
-        searchProviderCombo.selectedItem = com.chelayel.geminirelay.agent.Web.Provider.from(settings.searchProvider)
+        searchProviderCombo.selectedItem = Web.Provider.from(settings.searchProvider)
         searchKeyField.text = settings.searchApiKey
         searchCxField.text = settings.searchCx
         loadMemoryCheck.isSelected = settings.loadProjectMemory
@@ -382,9 +505,9 @@ class GeminiSettingsConfigurable : Configurable {
 
     private fun thinkingLevelText(): String = (thinkingCombo.selectedItem as? String).orEmpty()
 
-    private fun searchProvider(): com.chelayel.geminirelay.agent.Web.Provider =
-        searchProviderCombo.selectedItem as? com.chelayel.geminirelay.agent.Web.Provider
-            ?: com.chelayel.geminirelay.agent.Web.Provider.NONE
+    private fun searchProvider(): Web.Provider =
+        searchProviderCombo.selectedItem as? Web.Provider
+            ?: Web.Provider.NONE
 
     private fun comboModel(items: List<String>): ComboBoxModel<String> =
         DefaultComboBoxModel(items.toTypedArray())

@@ -23,6 +23,11 @@ dependencies {
     // Bundled into the plugin distribution so we don't rely on the IDE's
     // internal Gson copy. Used to (de)serialize the Gemini/Vertex REST payloads.
     implementation("com.google.code.gson:gson:2.11.0")
+
+    // Plain JUnit, deliberately without the IntelliJ test fixture: the classes
+    // worth testing here (Web, the MCP wire format) touch no IDE API, and a
+    // fixture would trade a sub-second run for booting a test application.
+    testImplementation(kotlin("test"))
 }
 
 intellijPlatform {
@@ -40,4 +45,9 @@ intellijPlatform {
 
 kotlin {
     jvmToolchain(21)
+}
+
+tasks.test {
+    useJUnitPlatform()
+    testLogging { events("passed", "skipped", "failed") }
 }
