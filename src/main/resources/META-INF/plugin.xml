@@ -1,7 +1,7 @@
 <idea-plugin>
     <id>com.chelayel.geminirelay</id>
     <name>Gemini Relay</name>
-    <vendor email="charbelhelayel@gmail.com" url="https://github.com/Chelayel/gemini-relay">Chelayel</vendor>
+    <vendor email="charbelhelayel@gmail.com" url="https://www.chelayel.com">Chelayel</vendor>
 
     <description><![CDATA[
         <h2>Gemini Relay — Google Gemini, native in your JetBrains IDE</h2>

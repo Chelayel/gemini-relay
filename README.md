@@ -67,4 +67,4 @@ See [`CLAUDE.md`](CLAUDE.md) for an architecture overview and contributor conven
 
 ## License
 
-[MIT](LICENSE) © Charbel Helayel
+[MIT](LICENSE) © [Charbel Helayel](https://www.chelayel.com)
