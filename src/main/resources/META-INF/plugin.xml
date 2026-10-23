@@ -4,7 +4,7 @@
     <vendor email="charbelhelayel@gmail.com" url="https://www.chelayel.com">Chelayel</vendor>
 
     <description><![CDATA[
-        <p><b>⚠ Deprecated.</b> Gemini Relay is no longer developed. Its successor,
+        <p><b>Deprecated:</b> Gemini Relay is no longer developed. Its successor,
         <a href="https://plugins.jetbrains.com/plugin/34342-ai-relay">AI Relay</a>, takes the same
         three connection modes — a Vertex deployment behind an Apigee gateway, a Vertex project or
         a Gemini API key — and also makes that Gemini a model inside <b>GitHub Copilot</b>. For a
