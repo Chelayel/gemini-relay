@@ -29,6 +29,7 @@
             <li><b>Configurable everything</b> — connection parameters in Settings; secrets in the IDE password safe</li>
         </ul>
 
+        <p><img src="https://raw.githubusercontent.com/Chelayel/gemini-relay/main/docs/screenshots/intellij.png" alt="Gemini Relay in IntelliJ IDEA: a finished agent turn in the panel beside the editor" width="640"/></p>
         <p><img src="https://raw.githubusercontent.com/Chelayel/gemini-relay/main/docs/screenshots/agent-turn.png" alt="An agent turn: Gemini reads files, edits them and runs the tests" width="300"/>
         <img src="https://raw.githubusercontent.com/Chelayel/gemini-relay/main/docs/screenshots/context-and-image.png" alt="A question with the editor selection and a pasted image attached" width="300"/></p>
 
@@ -42,6 +43,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.3.3</b> — No changes to the plugin; the description now shows the panel in IntelliJ IDEA.</p>
         <p><b>1.3.2</b> — The deprecation notice and the banner above the chat point only to AI Relay.</p>
         <p><b>1.3.1</b> — No changes to the plugin; the description now shows screenshots of the chat panel.</p>
         <p><b>1.3.0</b> — Gemini Relay is deprecated in favour of

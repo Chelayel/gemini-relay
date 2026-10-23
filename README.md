@@ -20,6 +20,8 @@ lives next to your code and stays aware of the file and lines you have open.
 
 > Independent and unofficial — not affiliated with Google.
 
+<p align="center"><img src="docs/screenshots/intellij.png" alt="Gemini Relay in IntelliJ IDEA: a finished agent turn in the panel beside the editor" width="780"></p>
+
 <p>
   <img src="docs/screenshots/agent-turn.png" alt="An agent turn: Gemini reads files, edits three, runs the tests and answers" width="32%">
   <img src="docs/screenshots/context-and-image.png" alt="A question with the editor selection and a pasted screenshot attached" width="32%">
