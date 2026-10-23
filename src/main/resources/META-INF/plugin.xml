@@ -7,10 +7,8 @@
         <p><b>Deprecated:</b> Gemini Relay is no longer developed. Its successor,
         <a href="https://plugins.jetbrains.com/plugin/34342-ai-relay">AI Relay</a>, takes the same
         three connection modes — a Vertex deployment behind an Apigee gateway, a Vertex project or
-        a Gemini API key — and also makes that Gemini a model inside <b>GitHub Copilot</b>. For a
-        general multi-agent workspace, see
-        <a href="https://www.jetbrains.com/help/air/quick-start-with-air.html">JetBrains Air</a>.
-        The plugin keeps working but gets no further updates.</p>
+        a Gemini API key — and also makes that Gemini a model inside <b>GitHub Copilot</b>. Free and
+        open source, like this plugin. Gemini Relay keeps working but gets no further updates.</p>
 
         <h2>Gemini Relay — Google Gemini, native in your JetBrains IDE</h2>
         <p>A native chat panel that brings <b>Google Gemini</b> into IntelliJ IDEA, PyCharm, WebStorm,
@@ -44,6 +42,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.3.2</b> — The deprecation notice and the banner above the chat point only to AI Relay.</p>
         <p><b>1.3.1</b> — No changes to the plugin; the description now shows screenshots of the chat panel.</p>
         <p><b>1.3.0</b> — Gemini Relay is deprecated in favour of
         <a href="https://plugins.jetbrains.com/plugin/34342-ai-relay">AI Relay</a>, which takes

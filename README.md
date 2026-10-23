@@ -7,8 +7,7 @@
 > Gemini API key — plus that Gemini as a model inside **GitHub Copilot**
 > (VS Code, JetBrains and Copilot CLI). Moving over: install AI Relay, run
 > `airelay gemini setup` (or open its settings page) and enter the same gateway
-> values. For a general multi-agent workspace, see
-> [JetBrains Air](https://www.jetbrains.com/help/air/quick-start-with-air.html).
+> values. Free and open source, like this plugin.
 > The plugin keeps working for now; the code stays here under MIT.
 
 **Google Gemini, native in your JetBrains IDE.**
