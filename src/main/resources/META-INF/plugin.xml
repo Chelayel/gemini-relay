@@ -31,6 +31,9 @@
             <li><b>Configurable everything</b> — connection parameters in Settings; secrets in the IDE password safe</li>
         </ul>
 
+        <p><img src="https://raw.githubusercontent.com/Chelayel/gemini-relay/main/docs/screenshots/agent-turn.png" alt="An agent turn: Gemini reads files, edits them and runs the tests" width="300"/>
+        <img src="https://raw.githubusercontent.com/Chelayel/gemini-relay/main/docs/screenshots/context-and-image.png" alt="A question with the editor selection and a pasted image attached" width="300"/></p>
+
         <p>Configure the connection under <b>Settings → Tools → Gemini Relay</b>.</p>
 
         <p>☕ <b>Free and open source</b> (MIT). Source, issues, and contributions:
@@ -41,6 +44,7 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.3.1</b> — No changes to the plugin; the description now shows screenshots of the chat panel.</p>
         <p><b>1.3.0</b> — Gemini Relay is deprecated in favour of
         <a href="https://plugins.jetbrains.com/plugin/34342-ai-relay">AI Relay</a>, which takes
         the same Apigee, Vertex or API-key connection and also serves it to GitHub Copilot as a
