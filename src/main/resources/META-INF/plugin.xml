@@ -4,6 +4,14 @@
     <vendor email="charbelhelayel@gmail.com" url="https://www.chelayel.com">Chelayel</vendor>
 
     <description><![CDATA[
+        <p><b>⚠ Deprecated.</b> Gemini Relay is no longer developed. Its successor,
+        <a href="https://plugins.jetbrains.com/plugin/34342-ai-relay">AI Relay</a>, takes the same
+        three connection modes — a Vertex deployment behind an Apigee gateway, a Vertex project or
+        a Gemini API key — and also makes that Gemini a model inside <b>GitHub Copilot</b>. For a
+        general multi-agent workspace, see
+        <a href="https://www.jetbrains.com/help/air/quick-start-with-air.html">JetBrains Air</a>.
+        The plugin keeps working but gets no further updates.</p>
+
         <h2>Gemini Relay — Google Gemini, native in your JetBrains IDE</h2>
         <p>A native chat panel that brings <b>Google Gemini</b> into IntelliJ IDEA, PyCharm, WebStorm,
         GoLand, Rider and the rest of the JetBrains family — a side-panel coding assistant that talks
@@ -33,6 +41,13 @@
     ]]></description>
 
     <change-notes><![CDATA[
+        <p><b>1.3.0</b> — Gemini Relay is deprecated in favour of
+        <a href="https://plugins.jetbrains.com/plugin/34342-ai-relay">AI Relay</a>, which takes
+        the same Apigee, Vertex or API-key connection and also serves it to GitHub Copilot as a
+        model. A banner at the top of the panel links to it (and to JetBrains Air). Nothing else
+        changes: the panel keeps working, but this is the last release. AI Relay keeps its own
+        settings in <code>~/.airelay/config.properties</code>; run <code>airelay gemini setup</code>
+        or open its settings page and enter the same gateway values.</p>
         <p><b>1.2.0</b> — The agent can now check its facts. Three new tools:
         <code>webSearch</code>, <code>fetchUrl</code> (any page or raw file, as readable text) and
         <code>mavenSearch</code> (real coordinates and published versions from Maven Central).

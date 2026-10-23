@@ -1,5 +1,16 @@
 # Gemini Relay
 
+> [!WARNING]
+> **Gemini Relay is deprecated and gets no further updates.** Its successor is
+> [AI Relay](https://github.com/Chelayel/ai-relay): the same three connection
+> modes — a Vertex deployment behind an Apigee gateway, a Vertex project or a
+> Gemini API key — plus that Gemini as a model inside **GitHub Copilot**
+> (VS Code, JetBrains and Copilot CLI). Moving over: install AI Relay, run
+> `airelay gemini setup` (or open its settings page) and enter the same gateway
+> values. For a general multi-agent workspace, see
+> [JetBrains Air](https://www.jetbrains.com/help/air/quick-start-with-air.html).
+> The plugin keeps working for now; the code stays here under MIT.
+
 **Google Gemini, native in your JetBrains IDE.**
 
 Gemini Relay is a plugin for IntelliJ IDEA, PyCharm, WebStorm, GoLand, Rider and
