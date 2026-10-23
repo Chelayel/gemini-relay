@@ -21,6 +21,14 @@ lives next to your code and stays aware of the file and lines you have open.
 
 > Independent and unofficial — not affiliated with Google.
 
+<p>
+  <img src="docs/screenshots/agent-turn.png" alt="An agent turn: Gemini reads files, edits three, runs the tests and answers" width="32%">
+  <img src="docs/screenshots/context-and-image.png" alt="A question with the editor selection and a pasted screenshot attached" width="32%">
+  <img src="docs/screenshots/streaming.png" alt="A turn in progress: failing test output, a reply, and the next tool call" width="32%">
+</p>
+
+*Left to right: an agent turn with its tool activity, a question with the editor selection and a pasted image attached, and a turn still in progress.*
+
 ## Features
 
 - **Streaming chat** with live tool activity — edits, commands, and file reads as they happen.
